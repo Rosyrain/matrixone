@@ -1,11 +1,36 @@
-name: release
-
+name: get release and upload
 on:
   release:
-    types: [published]
+    types: [created]
 
 jobs:
-  release:
-    name: Rlease MO Binary
-    uses: matrixorigin/CI/.github/workflows/release.yaml@main
-    secrets: inherit
+  build:
+    name: Build release binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Get release
+        id: get_release
+        uses: bruceadams/get-release@v1.3.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN_ACTION }}
+
+      - name: Echo some info
+        run: |
+          echo ${{ steps.get_release.outputs.upload_url }}
+          echo ${{ steps.get_release.outputs.tag_name }}
+#
+#      - name: Build binary
+#        run: cargo build --release --verbose
+#
+#      - name: Upload release binary
+#        uses: actions/upload-release-asset@v1.0.2
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.TOKEN_ACTION }}
+#        with:
+#          upload_url: ${{ steps.get_release.outputs.upload_url }}
+#          asset_path: ./target/release/my-widget
+#          asset_name: my-widget
+#          asset_content_type: application/octet-stream
