@@ -19,13 +19,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/matrixorigin/matrixone/pkg/fileservice/fscache"
 	"github.com/matrixorigin/matrixone/pkg/pb/query"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLRU(t *testing.T) {
-	l := New[int, Bytes](fscache.ConstCapacity(1), nil, nil, nil)
+	l := New[int, Bytes](1, nil, nil, nil)
 	ctx := context.Background()
 
 	l.Set(ctx, 1, []byte{42})
@@ -45,7 +44,7 @@ func TestLRUCallbacks(t *testing.T) {
 	evictEntryMap := make(map[int][]byte)
 	postEvictInvokedMap := make(map[int]bool)
 
-	l := New(fscache.ConstCapacity(1),
+	l := New(1,
 		func(key int, _ Bytes) {
 			postSetInvokedMap[key] = true
 		},
@@ -55,7 +54,7 @@ func TestLRUCallbacks(t *testing.T) {
 			postEvictInvokedMap[key] = true
 		})
 	s := &l.shards[0]
-	s.capacity = fscache.ConstCapacity(1)
+	s.capacity = 1
 
 	// PostSet
 	s.Set(ctx, 1, []byte{42})
@@ -75,7 +74,7 @@ func BenchmarkLRUSet(b *testing.B) {
 	k.Path = "tmp"
 	ctx := context.Background()
 	const capacity = 1024
-	l := New[query.CacheKey, Bytes](fscache.ConstCapacity(capacity), nil, nil, nil)
+	l := New[query.CacheKey, Bytes](capacity, nil, nil, nil)
 	v := make([]byte, 1)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -88,7 +87,7 @@ func BenchmarkLRUSet(b *testing.B) {
 func BenchmarkLRUParallelSet(b *testing.B) {
 	ctx := context.Background()
 	const capacity = 1024
-	l := New[query.CacheKey, Bytes](fscache.ConstCapacity(capacity), nil, nil, nil)
+	l := New[query.CacheKey, Bytes](capacity, nil, nil, nil)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		var k query.CacheKey
@@ -106,7 +105,7 @@ func BenchmarkLRUParallelSet(b *testing.B) {
 func BenchmarkLRUParallelSetOrGet(b *testing.B) {
 	ctx := context.Background()
 	const capacity = 1024
-	l := New[query.CacheKey, Bytes](fscache.ConstCapacity(capacity), nil, nil, nil)
+	l := New[query.CacheKey, Bytes](capacity, nil, nil, nil)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		var k query.CacheKey
@@ -129,7 +128,7 @@ func BenchmarkLRULargeParallelSetOrGet(b *testing.B) {
 
 	ctx := context.Background()
 	const capacity = 1024
-	l := New[query.CacheKey, Bytes](fscache.ConstCapacity(capacity), nil, nil, nil)
+	l := New[query.CacheKey, Bytes](capacity, nil, nil, nil)
 	b.ResetTimer()
 	for i := 0; i < 1000; i++ {
 		wg.Add(1)

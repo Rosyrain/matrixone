@@ -16,7 +16,7 @@ package fileservice
 
 import (
 	"github.com/matrixorigin/matrixone/pkg/common/malloc"
-	"github.com/matrixorigin/matrixone/pkg/fileservice/fscache"
+	"github.com/matrixorigin/matrixone/pkg/fileservice/memorycache"
 )
 
 type Bytes struct {
@@ -32,7 +32,7 @@ func (b Bytes) Bytes() []byte {
 	return b.bytes
 }
 
-func (b Bytes) Slice(length int) fscache.Data {
+func (b Bytes) Slice(length int) memorycache.CacheData {
 	b.bytes = b.bytes[:length]
 	return b
 }
@@ -49,7 +49,7 @@ type bytesAllocator struct {
 
 var _ CacheDataAllocator = new(bytesAllocator)
 
-func (b *bytesAllocator) Alloc(size int) fscache.Data {
+func (b *bytesAllocator) Alloc(size int) memorycache.CacheData {
 	slice, dec, err := b.allocator.Allocate(uint64(size), malloc.NoHints)
 	if err != nil {
 		panic(err)
