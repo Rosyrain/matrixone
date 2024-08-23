@@ -73,11 +73,13 @@ func executeStatusStmt(ses *Session, execCtx *ExecCtx) (err error) {
 				ses.Infof(execCtx.reqCtx, "time of Exec.Run : %s", time.Since(runBegin).String())
 			}
 
-			if err = exportAllDataFromBatches(ep); err != nil {
+			if err = exportAllData(ep); err != nil {
 				return
 			}
-
-			if err = Close(ep); err != nil {
+			if err = ep.Writer.Flush(); err != nil {
+				return
+			}
+			if err = ep.File.Close(); err != nil {
 				return
 			}
 

@@ -290,7 +290,7 @@ func checkFileExist(param *tree.ExternParam, ctx CompilerContext) (string, error
 			return "", err
 		}
 	} else {
-		if err := InitInfileOrStageParam(param, ctx.GetProcess()); err != nil {
+		if err := InitInfileParam(param); err != nil {
 			return "", err
 		}
 	}
