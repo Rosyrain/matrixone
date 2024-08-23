@@ -42,14 +42,14 @@ func (s *shard[K, V]) Set(ctx context.Context, key K, value V) (inserted bool) {
 	if s.postSet != nil {
 		s.postSet(key, value)
 	}
-	if atomic.LoadInt64(&s.size) >= s.capacity() {
-		s.evict(ctx, nil)
+	if atomic.LoadInt64(&s.size) >= s.capacity {
+		s.evict(ctx)
 	}
 
 	return true
 }
 
-func (s *shard[K, V]) evict(ctx context.Context, done chan int64) {
+func (s *shard[K, V]) evict(ctx context.Context) {
 	var numEvict, numEvictWithZeroRead int64
 	defer func() {
 		if numEvict > 0 || numEvictWithZeroRead > 0 {
@@ -60,14 +60,10 @@ func (s *shard[K, V]) evict(ctx context.Context, done chan int64) {
 		}
 	}()
 
-	var target int64
-	defer func() {
-		if done != nil {
-			done <- target
+	for {
+		if s.size <= s.capacity {
+			return
 		}
-	}()
-
-	for target = s.capacity(); s.size > target; target = s.capacity() {
 		if len(s.kv) == 0 {
 			return
 		}
@@ -91,8 +87,8 @@ func (s *shard[K, V]) evict(ctx context.Context, done chan int64) {
 			s.freeItem(elem)
 			break
 		}
-	}
 
+	}
 }
 
 func (s *shard[K, V]) Get(ctx context.Context, h uint64, key K) (value V, ok bool) {

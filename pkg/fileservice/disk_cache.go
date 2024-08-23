@@ -22,15 +22,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/matrixorigin/matrixone/pkg/fileservice/fifocache"
-	"github.com/matrixorigin/matrixone/pkg/fileservice/fscache"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	metric "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
@@ -52,7 +49,7 @@ type DiskCache struct {
 func NewDiskCache(
 	ctx context.Context,
 	path string,
-	capacity fscache.CapacityFunc,
+	capacity int,
 	perfCounterSets []*perfcounter.CounterSet,
 	asyncLoad bool,
 ) (ret *DiskCache, err error) {
@@ -94,31 +91,6 @@ func NewDiskCache(
 }
 
 func (d *DiskCache) loadCache() {
-	t0 := time.Now()
-
-	type Info struct {
-		Path  string
-		Entry os.DirEntry
-	}
-	works := make(chan Info)
-
-	numWorkers := runtime.NumCPU()
-	wg := new(sync.WaitGroup)
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for work := range works {
-
-				info, err := work.Entry.Info()
-				if err != nil {
-					continue // ignore
-				}
-
-				d.cache.Set(work.Path, struct{}{}, int64(fileSize(info)))
-			}
-		}()
-	}
 
 	var numFiles, numCacheFiles int
 
@@ -138,23 +110,20 @@ func (d *DiskCache) loadCache() {
 		if !strings.HasSuffix(entry.Name(), cacheFileSuffix) {
 			return nil
 		}
-
-		numCacheFiles++
-		works <- Info{
-			Path:  path,
-			Entry: entry,
+		info, err := entry.Info()
+		if err != nil {
+			return nil // ignore
 		}
+
+		d.cache.Set(path, struct{}{}, int(fileSize(info)))
+		numCacheFiles++
 
 		return nil
 	})
 
-	close(works)
-	wg.Wait()
-
 	logutil.Info("disk cache info loaded",
 		zap.Any("all files", numFiles),
 		zap.Any("cache files", numCacheFiles),
-		zap.Any("time", time.Since(t0)),
 	)
 
 }
@@ -270,7 +239,7 @@ func (d *DiskCache) Read(
 			if err != nil {
 				return err
 			}
-			d.cache.Set(diskPath, struct{}{}, fileSize(stat))
+			d.cache.Set(diskPath, struct{}{}, int(fileSize(stat)))
 		}
 
 		if err := entry.ReadFromOSFile(ctx, file); err != nil {
@@ -394,7 +363,7 @@ func (d *DiskCache) writeFile(
 	stat, err := os.Stat(diskPath)
 	if err == nil {
 		// file exists
-		d.cache.Set(diskPath, struct{}{}, fileSize(stat))
+		d.cache.Set(diskPath, struct{}{}, int(fileSize(stat)))
 		numStat++
 		return false, nil
 	}
@@ -434,7 +403,7 @@ func (d *DiskCache) writeFile(
 	if err != nil {
 		return false, err
 	}
-	d.cache.Set(diskPath, struct{}{}, fileSize(stat))
+	d.cache.Set(diskPath, struct{}{}, int(fileSize(stat)))
 
 	if err := f.Close(); err != nil {
 		return false, err
@@ -548,10 +517,6 @@ func (d *DiskCache) DeletePaths(
 	}
 
 	return nil
-}
-
-func (d *DiskCache) Evict(done chan int64) {
-	d.cache.Evict(done)
 }
 
 func fileSize(info fs.FileInfo) int64 {
