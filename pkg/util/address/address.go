@@ -15,11 +15,15 @@
 package address
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -165,7 +169,19 @@ func (m *addressManager) portAdvanceLocked() int {
 // localPortCheck checks if the local port is available to use. If the port is not used, return
 // true; otherwise, return false.
 func localPortCheck(port int) bool {
-	return !RemoteAddressAvail(fmt.Sprintf(":%d", port), time.Millisecond*200)
+	cfg := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+			})
+		},
+	}
+	l, err := cfg.Listen(context.Background(), "tcp4", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return false
+	}
+	defer l.Close()
+	return true
 }
 
 // RemoteAddressAvail checks if remote address can be connected.

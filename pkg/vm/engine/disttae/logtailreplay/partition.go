@@ -31,15 +31,6 @@ type Partition struct {
 
 	// assuming checkpoints will be consumed once
 	checkpointConsumed atomic.Bool
-
-	TableInfo   TableInfo
-	TableInfoOK bool
-}
-
-type TableInfo struct {
-	ID            uint64
-	Name          string
-	PrimarySeqnum int
 }
 
 func NewPartition() *Partition {
