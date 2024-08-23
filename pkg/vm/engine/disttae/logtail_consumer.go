@@ -1287,17 +1287,11 @@ func updatePartitionOfPush(
 	defer partition.Unlock()
 	v2.LogtailUpdatePartitonGetLockDurationHistogram.Observe(time.Since(t0).Seconds())
 
-	if !partition.TableInfoOK {
-		t0 = time.Now()
-		tableInfo := e.catalog.GetTableById(dbId, tblId)
-		partition.TableInfo.ID = tblId
-		partition.TableInfo.Name = tableInfo.Name
-		partition.TableInfo.PrimarySeqnum = tableInfo.PrimarySeqnum
-		partition.TableInfoOK = true
-		v2.LogtailUpdatePartitonGetCatalogDurationHistogram.Observe(time.Since(t0).Seconds())
-	}
-
 	state, doneMutate := partition.MutateState()
+
+	t0 = time.Now()
+	key := e.catalog.GetTableById(dbId, tblId)
+	v2.LogtailUpdatePartitonGetCatalogDurationHistogram.Observe(time.Since(t0).Seconds())
 
 	if lazyLoad {
 		if len(tl.CkpLocation) > 0 {
@@ -1309,7 +1303,7 @@ func updatePartitionOfPush(
 		t0 = time.Now()
 		err = consumeLogTailOfPushWithLazyLoad(
 			ctx,
-			partition.TableInfo.PrimarySeqnum,
+			key.PrimarySeqnum,
 			e,
 			state,
 			tl,
@@ -1318,12 +1312,12 @@ func updatePartitionOfPush(
 
 	} else {
 		t0 = time.Now()
-		err = consumeLogTailOfPushWithoutLazyLoad(ctx, partition.TableInfo.PrimarySeqnum, e, state, tl, dbId, tblId, partition.TableInfo.Name)
+		err = consumeLogTailOfPushWithoutLazyLoad(ctx, key.PrimarySeqnum, e, state, tl, dbId, key.Id, key.Name)
 		v2.LogtailUpdatePartitonConsumeLogtailDurationHistogram.Observe(time.Since(t0).Seconds())
 	}
 
 	if err != nil {
-		logutil.Errorf("%s consume %d-%s log tail error: %v\n", logTag, tblId, partition.TableInfo.Name, err)
+		logutil.Errorf("%s consume %d-%s log tail error: %v\n", logTag, key.Id, key.Name, err)
 		return err
 	}
 
