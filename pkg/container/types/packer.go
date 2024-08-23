@@ -282,11 +282,6 @@ func (p *Packer) EncodeBit(e uint64) {
 	p.encodeUint(e)
 }
 
-func (p *Packer) EncodeUuid(e Uuid) {
-	p.putByte(uuidCode)
-	p.putBytes(e[:])
-}
-
 func (p *Packer) GetBuf() []byte {
 	return p.buffer
 }

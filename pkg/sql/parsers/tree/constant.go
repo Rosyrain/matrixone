@@ -16,6 +16,7 @@ package tree
 
 import (
 	"fmt"
+	"go/constant"
 	"strconv"
 	"strings"
 
@@ -52,6 +53,8 @@ const (
 
 // the AST for the constant numeric value.
 type NumVal struct {
+	Value constant.Value
+
 	ValType P_TYPE
 
 	// negative is the sign label
