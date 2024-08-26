@@ -68,7 +68,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/mergedelete"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/mergerecursive"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/minus"
-	"github.com/matrixorigin/matrixone/pkg/sql/colexec/offset"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/output"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/sample"
 	"github.com/matrixorigin/matrixone/pkg/sql/parsers/tree"
@@ -329,7 +328,7 @@ func (c *Compile) run(s *Scope) error {
 		}
 		mergeArg := s.RootOp.(*mergedelete.MergeDelete)
 		if mergeArg.AddAffectedRows {
-			c.addAffectedRows(mergeArg.AffectedRows)
+			c.addAffectedRows(mergeArg.AffectedRows())
 		}
 		return nil
 	case Remote:
@@ -419,6 +418,12 @@ func (c *Compile) IsSingleScope(ss []*Scope) bool {
 
 func (c *Compile) SetIsPrepare(isPrepare bool) {
 	c.isPrepare = isPrepare
+}
+
+func (c *Compile) FreeOperator() {
+	for _, s := range c.scope {
+		s.FreeOperator(c)
+	}
 }
 
 /*
@@ -1499,8 +1504,23 @@ func (c *Compile) compileExternScan(n *plan.Node) ([]*Scope, error) {
 	} else if param.ScanType == tree.INLINE {
 		return c.compileExternValueScan(n, param, strictSqlMode)
 	} else {
-		if err := plan2.InitInfileParam(param); err != nil {
+		if err := plan2.InitInfileOrStageParam(param, c.proc); err != nil {
 			return nil, err
+		}
+
+		// if filepath is stage URL, ScanType may change to tree.S3.  check param.Parallel again
+		if param.ScanType == tree.S3 && param.Parallel {
+			mcpu = 0
+			ID2Addr = make(map[int]int, 0)
+			for i := 0; i < len(c.cnList); i++ {
+				tmp := mcpu
+				if c.cnList[i].Mcpu > external.S3ParallelMaxnum {
+					mcpu += external.S3ParallelMaxnum
+				} else {
+					mcpu += c.cnList[i].Mcpu
+				}
+				ID2Addr[i] = mcpu - tmp
+			}
 		}
 	}
 
@@ -1775,7 +1795,7 @@ func (c *Compile) compileTableScanWithNode(n *plan.Node, node engine.Node, first
 		node: n,
 	}
 
-	op := constructTableScan()
+	op := constructTableScan(n)
 	op.SetAnalyzeControl(c.anal.curNodeIdx, firstFlag)
 	s.setRootOperator(op)
 	s.Proc = c.proc.NewNoContextChildProc(0)
@@ -1891,6 +1911,10 @@ func (c *Compile) compileTableScanDataSource(s *Scope) error {
 	s.DataSource.FilterExpr = filterExpr
 	s.DataSource.RuntimeFilterSpecs = n.RuntimeFilterProbeList
 	s.DataSource.OrderBy = n.OrderBy
+	if s.DataSource.OrderBy != nil {
+		// ordered scan run with single parallel
+		s.NodeInfo.Mcpu = 1
+	}
 
 	return nil
 }
@@ -2641,7 +2665,7 @@ func (c *Compile) compileFill(n *plan.Node, ss []*Scope) []*Scope {
 func (c *Compile) compileOffset(n *plan.Node, ss []*Scope) []*Scope {
 	if c.IsSingleScope(ss) {
 		currentFirstFlag := c.anal.isFirst
-		op := offset.NewArgument().WithOffset(n.Offset)
+		op := constructOffset(n)
 		op.SetAnalyzeControl(c.anal.curNodeIdx, currentFirstFlag)
 		ss[0].setRootOperator(op)
 		c.anal.isFirst = false
@@ -2651,7 +2675,7 @@ func (c *Compile) compileOffset(n *plan.Node, ss []*Scope) []*Scope {
 	rs := c.newMergeScope(ss)
 
 	currentFirstFlag := c.anal.isFirst
-	arg := constructMergeOffset(n)
+	arg := constructOffset(n)
 	arg.SetAnalyzeControl(c.anal.curNodeIdx, currentFirstFlag)
 	rs.setRootOperator(arg)
 	c.anal.isFirst = false
@@ -2682,7 +2706,7 @@ func (c *Compile) compileLimit(n *plan.Node, ss []*Scope) []*Scope {
 	rs := c.newMergeScope(ss)
 
 	currentFirstFlag = c.anal.isFirst
-	arg := constructMergeLimit(n)
+	arg := constructLimit(n)
 	arg.SetAnalyzeControl(c.anal.curNodeIdx, currentFirstFlag)
 	rs.setRootOperator(arg)
 	c.anal.isFirst = false
@@ -3137,7 +3161,7 @@ func (c *Compile) compileRecursiveCte(n *plan.Node, curNodeIdx int32) ([]*Scope,
 	rs.setRootOperator(mergeOp1)
 
 	currentFirstFlag := c.anal.isFirst
-	mergecteArg := mergecte.NewArgument()
+	mergecteArg := mergecte.NewArgument().WithNodeCnt(len(n.SourceStep) - 1)
 	mergecteArg.SetAnalyzeControl(c.anal.curNodeIdx, currentFirstFlag)
 	rs.setRootOperator(mergecteArg)
 	c.anal.isFirst = false
@@ -4507,7 +4531,7 @@ func removeEmtpyNodes(
 		for i := range c.cnList {
 			logstring = logstring + c.cnList[i].Addr + " "
 		}
-		c.proc.Warnf(c.proc.Ctx, logstring)
+		c.proc.Warn(c.proc.Ctx, logstring)
 	}
 	return newNodes, nil
 }
@@ -4623,7 +4647,7 @@ func shuffleBlocksByHash(c *Compile, relData engine.RelData, nodes engine.Nodes)
 // Just for test
 func shuffleBlocksByMoCtl(relData engine.RelData, cnt int, nodes engine.Nodes) error {
 	if cnt > relData.DataCnt()-1 {
-		return moerr.NewInternalErrorNoCtx(
+		return moerr.NewInternalErrorNoCtxf(
 			"Invalid Parameter, distribute count:%d, block count:%d",
 			cnt,
 			relData.DataCnt()-1)
