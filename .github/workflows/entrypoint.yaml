@@ -62,7 +62,7 @@ jobs:
     needs: 
       - check-pr-valid
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
-    uses: Rosyrain/CI/.github/workflows/utils.yaml@pr-coverage
+    uses: Rosyrain/CI/.github/workflows/utils.yaml@coverage-1
     secrets:
       TOKEN_ACTION: ${{ secrets.TOKEN_ACTION }}
       S3ENDPOINT: ${{ secrets.S3ENDPOINT }}
