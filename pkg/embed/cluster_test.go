@@ -18,6 +18,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,7 +97,6 @@ func TestBaseClusterOnlyStartOnce(t *testing.T) {
 }
 
 func TestRestartCN(t *testing.T) {
-	// TODO: wait #17668 fixed
 	t.SkipNow()
 	RunBaseClusterTests(
 		func(c Cluster) {
@@ -129,6 +130,34 @@ func TestRunSQLWithFrontend(t *testing.T) {
 	)
 }
 
+func TestGetInitPort(t *testing.T) {
+	var wg sync.WaitGroup
+	var ports []uint64
+	var lock sync.Mutex
+	add := func(v uint64) {
+		lock.Lock()
+		defer lock.Unlock()
+		ports = append(ports, v)
+	}
+
+	n := 4
+	name := fmt.Sprintf("%d.port", time.Now().Nanosecond())
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			port := getInitPort(name)
+			add(port)
+		}()
+	}
+
+	wg.Wait()
+	sort.Slice(ports, func(i, j int) bool {
+		return ports[i] < ports[j]
+	})
+	require.Equal(t, []uint64{10000, 11000, 12000, 13000}, ports)
+}
+
 func validCNCanWork(
 	t *testing.T,
 	c Cluster,
@@ -156,4 +185,44 @@ func validCNCanWork(
 		},
 	)
 	require.True(t, n > 0)
+}
+
+func TestCreateDB(t *testing.T) {
+	RunBaseClusterTests(
+		func(c Cluster) {
+			cn0, err := c.GetCNService(0)
+			require.NoError(t, err)
+
+			dsn := fmt.Sprintf("dump:111@tcp(127.0.0.1:%d)/",
+				cn0.GetServiceConfig().CN.Frontend.Port,
+			)
+
+			db, err := sql.Open("mysql", dsn)
+			require.NoError(t, err)
+			defer db.Close()
+
+			_, err = db.Exec("create database foo")
+			require.NoError(t, err)
+
+			_, err = db.Exec("use foo")
+			require.NoError(t, err)
+
+			_, err = db.Exec("create table bar (id int)")
+			require.NoError(t, err)
+
+			_, err = db.Exec("insert into bar values (1)")
+			require.NoError(t, err)
+
+			rows, err := db.Query("select id from bar")
+			require.NoError(t, err)
+			require.NoError(t, rows.Err())
+			defer rows.Close()
+
+			var id int
+			for rows.Next() {
+				rows.Scan(&id)
+				require.Equal(t, 1, id)
+			}
+		},
+	)
 }

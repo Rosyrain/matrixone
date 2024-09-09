@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/matrixorigin/matrixone/pkg/logutil"
+
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -43,14 +45,14 @@ func (e *Engine) tryAdjustThreeTablesCreatedTimeWithBatch(b *batch.Batch) {
 	tnameIdx := catalog.MO_TABLES_REL_NAME_IDX + cache.MO_OFF
 	createdTsIdx := catalog.MO_TABLES_CREATED_TIME_IDX + cache.MO_OFF
 	for i := 0; i < b.RowCount(); i++ {
-		aid := vector.GetFixedAt[uint32](b.Vecs[aidIdx], i)
+		aid := vector.GetFixedAtWithTypeCheck[uint32](b.Vecs[aidIdx], i)
 		tname := b.Vecs[tnameIdx].GetStringAt(i)
 		if aid == 0 && tname == "mo_user" {
-			ts := vector.GetFixedAt[types.Timestamp](b.Vecs[createdTsIdx], i)
-			vector.SetFixedAt(e.moDatabaseCreatedTime, 0, ts)
-			vector.SetFixedAt(e.moTablesCreatedTime, 0, ts)
-			vector.SetFixedAt(e.moColumnsCreatedTime, 0, ts)
-			vector.SetFixedAt(e.moCatalogCreatedTime, 0, ts)
+			ts := vector.GetFixedAtWithTypeCheck[types.Timestamp](b.Vecs[createdTsIdx], i)
+			vector.SetFixedAtWithTypeCheck(e.moDatabaseCreatedTime, 0, ts)
+			vector.SetFixedAtWithTypeCheck(e.moTablesCreatedTime, 0, ts)
+			vector.SetFixedAtWithTypeCheck(e.moColumnsCreatedTime, 0, ts)
+			vector.SetFixedAtWithTypeCheck(e.moCatalogCreatedTime, 0, ts)
 			e.timeFixed = true
 			return
 		}
@@ -292,7 +294,7 @@ func (e *Engine) getOrCreateSnapPart(
 	if err != nil {
 		return nil, err
 	}
-	snap.ConsumeSnapCkps(ctx, ckps, func(
+	err = snap.ConsumeSnapCkps(ctx, ckps, func(
 		checkpoint *checkpoint.CheckpointEntry,
 		state *logtailreplay.PartitionState) error {
 		locs := make([]string, 0)
@@ -314,7 +316,9 @@ func (e *Engine) getOrCreateSnapPart(
 		}
 		defer func() {
 			for _, cb := range closeCBs {
-				cb()
+				if cb != nil {
+					cb()
+				}
 			}
 		}()
 		for _, entry := range entries {
@@ -330,6 +334,10 @@ func (e *Engine) getOrCreateSnapPart(
 		}
 		return nil
 	})
+	if err != nil {
+		logutil.Infof("Snapshot consumeSnapCkps failed, err:%v", err)
+		return nil, err
+	}
 	if snap.CanServe(ts) {
 		tblSnaps.snaps = append(tblSnaps.snaps, snap)
 		return snap.Snapshot(), nil
@@ -348,7 +356,7 @@ func (e *Engine) getOrCreateSnapPart(
 		return ps, nil
 	}
 	if ts.Less(&start) {
-		return nil, moerr.NewInternalErrorNoCtx(
+		return nil, moerr.NewInternalErrorNoCtxf(
 			"No valid checkpoints for snapshot read,maybe snapshot is too old, "+
 				"snapshot op:%s, start:%s, end:%s",
 			tbl.db.op.Txn().DebugString(),
@@ -406,7 +414,9 @@ func (e *Engine) LazyLoadLatestCkp(
 			}
 			defer func() {
 				for _, cb := range closeCBs {
-					cb()
+					if cb != nil {
+						cb()
+					}
 				}
 			}()
 			for _, entry := range entries {

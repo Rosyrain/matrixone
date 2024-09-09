@@ -393,8 +393,6 @@ func testFileService(
 			numDone := int64(0)
 			for i, entry := range readVector.Entries {
 				wg.Add(1)
-				i := i
-				entry := entry
 				go func() {
 					defer wg.Done()
 					reader := readers[i]
@@ -403,7 +401,7 @@ func testFileService(
 					reader.Close()
 					if !bytes.Equal(parts[i], data) {
 						select {
-						case errCh <- moerr.NewInternalError(context.Background(),
+						case errCh <- moerr.NewInternalErrorf(context.Background(),
 							"not equal: path: %s, entry: %+v, content %v",
 							filePath, entry, content,
 						):
@@ -701,7 +699,7 @@ func testFileService(
 						if len(data) > 0 {
 							assert.Equal(t, bs, data)
 						}
-						cacheData := allocator.Alloc(len(bs))
+						cacheData := allocator.AllocateCacheData(len(bs))
 						copy(cacheData.Bytes(), bs)
 						return cacheData, nil
 					},

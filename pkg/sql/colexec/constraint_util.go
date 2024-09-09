@@ -30,19 +30,15 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
 
-func FilterRowIdForDel(proc *process.Process, bat *batch.Batch,
-	idx int, primaryKeyIdx int) (*batch.Batch, error) {
+func FilterRowIdForDel(proc *process.Process, retBat *batch.Batch, srcBat *batch.Batch,
+	idx int, primaryKeyIdx int) error {
 	sels := proc.Mp().GetSels()
 	defer proc.Mp().PutSels(sels)
-	retBat := batch.NewWithSize(2)
-	retBat.SetAttributes([]string{catalog.Row_ID, "pk"})
-	rowidVec := proc.GetVector(types.T_Rowid.ToType())
-	primaryVec := proc.GetVector(*bat.GetVector(int32(primaryKeyIdx)).GetType())
-	retBat.SetVector(0, rowidVec)
-	retBat.SetVector(1, primaryVec)
+	rowidVec := retBat.Vecs[0]
+	primaryVec := retBat.Vecs[1]
 	rowIdMap := make(map[types.Rowid]bool)
-	nulls := bat.Vecs[idx].GetNulls()
-	for i, r := range vector.MustFixedCol[types.Rowid](bat.Vecs[idx]) {
+	nulls := srcBat.Vecs[idx].GetNulls()
+	for i, r := range vector.MustFixedColWithTypeCheck[types.Rowid](srcBat.Vecs[idx]) {
 		if !nulls.Contains(uint64(i)) {
 			if rowIdMap[r] {
 				continue
@@ -51,22 +47,16 @@ func FilterRowIdForDel(proc *process.Process, bat *batch.Batch,
 			sels = append(sels, int64(i))
 		}
 	}
-	uf := vector.GetUnionOneFunction(types.T_Rowid.ToType(), proc.Mp())
-	for _, sel := range sels {
-		if err := uf(rowidVec, bat.Vecs[idx], sel); err != nil {
-			retBat.Clean(proc.Mp())
-			return nil, err
-		}
+	err := rowidVec.Union(srcBat.Vecs[idx], sels, proc.Mp())
+	if err != nil {
+		return err
 	}
-	uf = vector.GetUnionOneFunction(*bat.GetVector(int32(primaryKeyIdx)).GetType(), proc.Mp())
-	for _, sel := range sels {
-		if err := uf(primaryVec, bat.Vecs[primaryKeyIdx], sel); err != nil {
-			retBat.Clean(proc.Mp())
-			return nil, err
-		}
+	err = primaryVec.Union(srcBat.Vecs[primaryKeyIdx], sels, proc.Mp())
+	if err != nil {
+		return err
 	}
 	retBat.SetRowCount(len(sels))
-	return retBat, nil
+	return nil
 }
 
 // GroupByPartitionForDeleteS3: Group data based on partition and return batch array with the same length as the number of partitions.
@@ -75,20 +65,18 @@ func GroupByPartitionForDelete(proc *process.Process, bat *batch.Batch, rowIdIdx
 	vecList := make([]*vector.Vector, partitionNum)
 	pkList := make([]*vector.Vector, partitionNum)
 	pkTyp := bat.Vecs[pkIdx].GetType()
-	fun := vector.GetUnionOneFunction(*pkTyp, proc.Mp())
 	for i := 0; i < partitionNum; i++ {
-		//retVec := vector.NewVec(types.T_Rowid.ToType())
-		retVec := proc.GetVector(types.T_Rowid.ToType())
-		pkVec := proc.GetVector(*pkTyp)
+		retVec := vector.NewVec(types.T_Rowid.ToType())
+		pkVec := vector.NewVec(*pkTyp)
 		vecList[i] = retVec
 		pkList[i] = pkVec
 	}
 
 	// Fill the data into the corresponding batch based on the different partitions to which the current `row_id` data
 	var err error
-	for i, rowid := range vector.MustFixedCol[types.Rowid](bat.Vecs[rowIdIdx]) {
+	for i, rowid := range vector.MustFixedColWithTypeCheck[types.Rowid](bat.Vecs[rowIdIdx]) {
 		if !bat.Vecs[rowIdIdx].GetNulls().Contains(uint64(i)) {
-			partition := vector.MustFixedCol[int32](bat.Vecs[partitionIdx])[i]
+			partition := vector.MustFixedColWithTypeCheck[int32](bat.Vecs[partitionIdx])[i]
 			if partition == -1 {
 				err = moerr.NewInvalidInput(proc.Ctx, "Table has no partition for value from column_list")
 				break
@@ -97,7 +85,7 @@ func GroupByPartitionForDelete(proc *process.Process, bat *batch.Batch, rowIdIdx
 				if err != nil {
 					break
 				}
-				err = fun(pkList[partition], bat.Vecs[pkIdx], int64(i))
+				err = pkList[partition].UnionOne(bat.Vecs[pkIdx], int64(i), proc.Mp())
 				if err != nil {
 					break
 				}
@@ -138,8 +126,7 @@ func GroupByPartitionForInsert(proc *process.Process, bat *batch.Batch, attrs []
 		partitionBatch.Attrs = attrs
 		for i := range partitionBatch.Attrs {
 			vecType := bat.GetVector(int32(i)).GetType()
-			//retVec := vector.NewVec(*vecType)
-			retVec := proc.GetVector(*vecType)
+			retVec := vector.NewVec(*vecType)
 			partitionBatch.SetVector(int32(i), retVec)
 		}
 		batches[partIdx] = partitionBatch
@@ -147,7 +134,7 @@ func GroupByPartitionForInsert(proc *process.Process, bat *batch.Batch, attrs []
 
 	// fill the data into the corresponding batch based on the different partitions to which the current row data belongs
 	var err error
-	for i, partition := range vector.MustFixedCol[int32](bat.Vecs[pIdx]) {
+	for i, partition := range vector.MustFixedColWithTypeCheck[int32](bat.Vecs[pIdx]) {
 		if !bat.Vecs[pIdx].GetNulls().Contains(uint64(i)) {
 			if partition == -1 {
 				err = moerr.NewInvalidInput(proc.Ctx, "Table has no partition for value from column_list")
@@ -169,7 +156,7 @@ func GroupByPartitionForInsert(proc *process.Process, bat *batch.Batch, attrs []
 	}
 	if err != nil {
 		for _, batchElem := range batches {
-			proc.PutBatch(batchElem)
+			batchElem.Clean(proc.GetMPool())
 		}
 		return nil, err
 	}

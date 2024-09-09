@@ -36,6 +36,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/testutil"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine"
+	"github.com/matrixorigin/matrixone/pkg/vm/engine/engine_util"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
@@ -45,8 +46,7 @@ import (
 // -----------------------------------------------------------------
 
 func (mixin *withFilterMixin) reset() {
-	mixin.filterState.evaluated = false
-	mixin.filterState.filter = blockio.BlockReadFilter{}
+	mixin.filterState.filter = objectio.BlockReadFilter{}
 	mixin.columns.pkPos = -1
 	mixin.columns.indexOfFirstSortedColumn = -1
 	mixin.columns.seqnums = nil
@@ -70,7 +70,6 @@ func (mixin *withFilterMixin) tryUpdateColumns(cols []string) {
 	chit, ctotal := len(cols), len(mixin.tableDef.Cols)
 	v2.TaskSelColumnTotal.Add(float64(ctotal))
 	v2.TaskSelColumnHit.Add(float64(ctotal - chit))
-	blockio.RecordColumnSelectivity(mixin.proc.GetService(), chit, ctotal)
 
 	mixin.columns.seqnums = make([]uint16, len(cols))
 	mixin.columns.colTypes = make([]types.Type, len(cols))
@@ -106,13 +105,8 @@ func (mixin *withFilterMixin) tryUpdateColumns(cols []string) {
 		// use the search function to find the offset of the primary key.
 		// it returns the offset of the primary key in the pk vector.
 		// if the primary key is not found, it returns empty slice
-		mixin.filterState.evaluated = true
-		//mixin.filterState.filter = filter
 		mixin.filterState.seqnums = []uint16{mixin.columns.seqnums[mixin.columns.pkPos]}
 		mixin.filterState.colTypes = mixin.columns.colTypes[mixin.columns.pkPos : mixin.columns.pkPos+1]
-
-		// records how many blks one reader needs to read when having filter
-		//objectio.BlkReadStats.BlksByReaderStats.Record(1, blkCnt)
 	}
 }
 
@@ -139,9 +133,9 @@ func (r *emptyReader) Read(
 	_ []string,
 	_ *plan.Expr,
 	_ *mpool.MPool,
-	_ engine.VectorPool,
-) (*batch.Batch, error) {
-	return nil, nil
+	_ *batch.Batch,
+) (bool, error) {
+	return true, nil
 }
 
 func prepareGatherStats(ctx context.Context) (context.Context, int64, int64) {
@@ -206,35 +200,34 @@ func (r *mergeReader) Read(
 	cols []string,
 	expr *plan.Expr,
 	mp *mpool.MPool,
-	vp engine.VectorPool,
-) (*batch.Batch, error) {
+	bat *batch.Batch,
+) (bool, error) {
 	start := time.Now()
 	defer func() {
 		v2.TxnMergeReaderDurationHistogram.Observe(time.Since(start).Seconds())
 	}()
 
 	if len(r.rds) == 0 {
-		return nil, nil
+		return true, nil
 	}
 	for len(r.rds) > 0 {
-		bat, err := r.rds[0].Read(ctx, cols, expr, mp, vp)
+		isEnd, err := r.rds[0].Read(ctx, cols, expr, mp, bat)
 		if err != nil {
 			for _, rd := range r.rds {
 				rd.Close()
 			}
-			return nil, err
+			return false, err
 		}
-		if bat == nil {
+		if isEnd {
 			r.rds = r.rds[1:]
-		}
-		if bat != nil {
+		} else {
 			if logutil.GetSkip1Logger().Core().Enabled(zap.DebugLevel) {
 				logutil.Debug(testutil.OperatorCatchBatch("merge reader", bat))
 			}
-			return bat, nil
+			return false, nil
 		}
 	}
-	return nil, nil
+	return true, nil
 }
 
 // -----------------------------------------------------------------
@@ -250,7 +243,7 @@ func NewReader(
 	source engine.DataSource,
 ) (*reader, error) {
 
-	baseFilter, err := newBasePKFilter(
+	baseFilter, err := engine_util.ConstructBasePKFilter(
 		expr,
 		tableDef,
 		proc,
@@ -270,8 +263,8 @@ func NewReader(
 		return nil, err
 	}
 
-	blockFilter, err := newBlockReadPKFilter(
-		tableDef.Pkey.PkeyColName,
+	blockFilter, err := engine_util.ConstructBlockPKFilter(
+		catalog.IsFakePkName(tableDef.Pkey.PkeyColName),
 		baseFilter,
 	)
 	if err != nil {
@@ -319,8 +312,8 @@ func (r *reader) Read(
 	cols []string,
 	expr *plan.Expr,
 	mp *mpool.MPool,
-	vp engine.VectorPool,
-) (bat *batch.Batch, err error) {
+	bat *batch.Batch,
+) (isEnd bool, err error) {
 
 	var dataState engine.DataState
 
@@ -334,26 +327,25 @@ func (r *reader) Read(
 
 	r.tryUpdateColumns(cols)
 
-	bat, blkInfo, state, err := r.source.Next(
+	blkInfo, state, err := r.source.Next(
 		ctx,
 		cols,
 		r.columns.colTypes,
 		r.columns.seqnums,
 		r.memFilter,
 		mp,
-		vp,
-	)
+		bat)
 
 	dataState = state
 
 	if err != nil {
-		return
+		return false, err
 	}
 	if state == engine.End {
-		return nil, nil
+		return true, nil
 	}
 	if state == engine.InMem {
-		return
+		return false, nil
 	}
 	//read block
 	filter := r.withFilterMixin.filterState.filter
@@ -370,9 +362,8 @@ func (r *reader) Read(
 		policy = fileservice.SkipMemoryCacheWrites
 	}
 
-	bat, err = blockio.BlockDataRead(
+	err = blockio.BlockDataRead(
 		statsCtx,
-		r.withFilterMixin.proc.GetService(),
 		blkInfo,
 		r.source,
 		r.columns.seqnums,
@@ -381,11 +372,14 @@ func (r *reader) Read(
 		r.filterState.seqnums,
 		r.filterState.colTypes,
 		filter,
-		r.fs, mp, vp, policy,
+		policy,
 		r.tableDef.Name,
+		bat,
+		mp,
+		r.fs,
 	)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	if filter.Valid {
@@ -395,7 +389,7 @@ func (r *reader) Read(
 
 	bat.SetAttributes(cols)
 
-	if blkInfo.Sorted && r.columns.indexOfFirstSortedColumn != -1 {
+	if blkInfo.IsSorted() && r.columns.indexOfFirstSortedColumn != -1 {
 		bat.GetVector(int32(r.columns.indexOfFirstSortedColumn)).SetSorted(true)
 	}
 
@@ -403,5 +397,5 @@ func (r *reader) Read(
 		logutil.Debug(testutil.OperatorCatchBatch("block reader", bat))
 	}
 
-	return
+	return false, nil
 }

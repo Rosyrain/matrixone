@@ -18,8 +18,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
-	"github.com/matrixorigin/matrixone/pkg/util/trace"
 	"io"
 	"net"
 	"sync"
@@ -32,6 +30,8 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/defines"
 	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/queryservice"
+	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
+	"github.com/matrixorigin/matrixone/pkg/util/trace"
 )
 
 // RelationName counter for the new connection
@@ -53,6 +53,13 @@ type MOServer struct {
 
 	pu        *config.ParameterUnit
 	listeners []net.Listener
+}
+
+// Server interface is for mock MOServer
+type Server interface {
+	GetRoutineManager() *RoutineManager
+	Start() error
+	Stop() error
 }
 
 // BaseService is an interface which indicates that the instance is
@@ -78,6 +85,7 @@ func (mo *MOServer) GetRoutineManager() *RoutineManager {
 
 func (mo *MOServer) Start() error {
 	logutil.Infof("Server Listening on : %s ", mo.addr)
+	mo.running = true
 	mo.startListener()
 	setMoServerStarted(true)
 	return nil
@@ -112,6 +120,12 @@ func (mo *MOServer) Stop() error {
 	}
 	logutil.Debug("application stopped")
 	return nil
+}
+
+func (mo *MOServer) IsRunning() bool {
+	mo.mu.RLock()
+	defer mo.mu.RUnlock()
+	return mo.running
 }
 
 func (mo *MOServer) startListener() {
@@ -439,6 +453,10 @@ func (mo *MOServer) handleMessage(rs *Conn) error {
 func (mo *MOServer) handleRequest(rs *Conn) error {
 	var msg []byte
 	var err error
+	if !mo.IsRunning() {
+		return io.EOF
+	}
+
 	msg, err = rs.Read()
 	if err != nil {
 		if err == io.EOF {

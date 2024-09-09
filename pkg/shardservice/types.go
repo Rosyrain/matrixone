@@ -67,6 +67,8 @@ type ShardServer interface {
 type ShardService interface {
 	// GetConfig returns the configuration of the shard service.
 	Config() Config
+	// GetStorage returns the storage of the shard service.
+	GetStorage() ShardStorage
 	// Read read data from shards.
 	Read(ctx context.Context, req ReadRequest, opts ReadOptions) error
 	// HasLocalReplica returns whether the shard has a local replica.
@@ -85,6 +87,8 @@ type ShardService interface {
 	Delete(ctx context.Context, table uint64, txnOp client.TxnOperator) error
 	// ReplicaCount returns the number of running replicas on current cn.
 	ReplicaCount() int64
+	// TableReplicaCount returns the number of running replicas of the special table on current cn.
+	TableReplicaCount(tableID uint64) int64
 	// Close close the service
 	Close() error
 }

@@ -31,7 +31,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/lockservice"
 	"github.com/matrixorigin/matrixone/pkg/pb/lock"
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
-	"github.com/matrixorigin/matrixone/pkg/sql/colexec/value_scan"
+	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/txn/client"
 	"github.com/matrixorigin/matrixone/pkg/txn/rpc"
 	"github.com/matrixorigin/matrixone/pkg/vm"
@@ -63,12 +63,12 @@ func TestCallLockOpWithNoConflict(t *testing.T) {
 		[][]int32{{0, 1, 2}},
 		func(proc *process.Process, arg *LockOp) {
 			require.NoError(t, arg.Prepare(proc))
-			arg.ctr.rt.hasNewVersionInRange = testFunc
+			arg.ctr.hasNewVersionInRange = testFunc
 			result, err := arg.Call(proc)
 			require.NoError(t, err)
 
 			vec := result.Batch.GetVector(1)
-			values := vector.MustFixedCol[types.TS](vec)
+			values := vector.MustFixedColWithTypeCheck[types.TS](vec)
 			assert.Equal(t, 3, len(values))
 			for _, v := range values {
 				assert.Equal(t, types.TS{}, v)
@@ -86,11 +86,11 @@ func TestCallLockOpWithConflict(t *testing.T) {
 		[][]int32{{0, 1, 2}},
 		func(proc *process.Process, arg *LockOp) {
 			require.NoError(t, arg.Prepare(proc))
-			arg.ctr.rt.hasNewVersionInRange = testFunc
+			arg.ctr.hasNewVersionInRange = testFunc
 
-			arg.ctr.rt.parker.Reset()
-			arg.ctr.rt.parker.EncodeInt32(0)
-			conflictRow := arg.ctr.rt.parker.Bytes()
+			arg.ctr.parker.Reset()
+			arg.ctr.parker.EncodeInt32(0)
+			conflictRow := arg.ctr.parker.Bytes()
 			_, err := proc.GetLockService().Lock(
 				proc.Ctx,
 				tableID,
@@ -106,7 +106,7 @@ func TestCallLockOpWithConflict(t *testing.T) {
 				require.NoError(t, err)
 
 				vec := result.Batch.GetVector(1)
-				values := vector.MustFixedCol[types.TS](vec)
+				values := vector.MustFixedColWithTypeCheck[types.TS](vec)
 				assert.Equal(t, 3, len(values))
 				for _, v := range values {
 					assert.Equal(t, types.BuildTS(math.MaxInt64, 1), v)
@@ -128,11 +128,11 @@ func TestCallLockOpWithConflictWithRefreshNotEnabled(t *testing.T) {
 		[][]int32{{0, 1, 2}},
 		func(proc *process.Process, arg *LockOp) {
 			require.NoError(t, arg.Prepare(proc))
-			arg.ctr.rt.hasNewVersionInRange = testFunc
+			arg.ctr.hasNewVersionInRange = testFunc
 
-			arg.ctr.rt.parker.Reset()
-			arg.ctr.rt.parker.EncodeInt32(0)
-			conflictRow := arg.ctr.rt.parker.Bytes()
+			arg.ctr.parker.Reset()
+			arg.ctr.parker.EncodeInt32(0)
+			conflictRow := arg.ctr.parker.Bytes()
 			_, err := proc.GetLockService().Lock(
 				proc.Ctx,
 				tableID,
@@ -145,7 +145,6 @@ func TestCallLockOpWithConflictWithRefreshNotEnabled(t *testing.T) {
 			go func() {
 				defer close(c)
 				arg2 := &LockOp{
-					ctr: &container{},
 					OperatorBase: vm.OperatorBase{
 						OperatorInfo: vm.OperatorInfo{
 							Idx:     1,
@@ -154,14 +153,13 @@ func TestCallLockOpWithConflictWithRefreshNotEnabled(t *testing.T) {
 						},
 					},
 				}
-				arg2.ctr.rt = &state{}
-				arg2.ctr.rt.retryError = nil
+				arg2.ctr.retryError = nil
 				arg2.targets = arg.targets
 				arg2.Prepare(proc)
-				arg2.ctr.rt.hasNewVersionInRange = testFunc
-				valueScan := arg.GetChildren(0).(*value_scan.ValueScan)
-				resetChildren(arg2, valueScan.Batchs[0])
-				defer arg2.ctr.rt.parker.Close()
+				arg2.ctr.hasNewVersionInRange = testFunc
+				child := arg.GetChildren(0).(*colexec.MockOperator)
+				resetChildren(arg2, child.GetBatchs()[0])
+				defer arg2.ctr.parker.Close()
 
 				_, err = arg2.Call(proc)
 				assert.NoError(t, err)
@@ -186,11 +184,11 @@ func TestCallLockOpWithHasPrevCommit(t *testing.T) {
 		[][]int32{{0, 1, 2}},
 		func(proc *process.Process, arg *LockOp) {
 			require.NoError(t, arg.Prepare(proc))
-			arg.ctr.rt.hasNewVersionInRange = testFunc
+			arg.ctr.hasNewVersionInRange = testFunc
 
-			arg.ctr.rt.parker.Reset()
-			arg.ctr.rt.parker.EncodeInt32(0)
-			conflictRow := arg.ctr.rt.parker.Bytes()
+			arg.ctr.parker.Reset()
+			arg.ctr.parker.EncodeInt32(0)
+			conflictRow := arg.ctr.parker.Bytes()
 
 			// txn01 commit
 			_, err := proc.GetLockService().Lock(
@@ -215,7 +213,6 @@ func TestCallLockOpWithHasPrevCommit(t *testing.T) {
 			go func() {
 				defer close(c)
 				arg2 := &LockOp{
-					ctr: &container{},
 					OperatorBase: vm.OperatorBase{
 						OperatorInfo: vm.OperatorInfo{
 							Idx:     1,
@@ -224,14 +221,13 @@ func TestCallLockOpWithHasPrevCommit(t *testing.T) {
 						},
 					},
 				}
-				arg2.ctr.rt = &state{}
-				arg2.ctr.rt.retryError = nil
+				arg2.ctr.retryError = nil
 				arg2.targets = arg.targets
 				arg2.Prepare(proc)
-				arg2.ctr.rt.hasNewVersionInRange = testFunc
-				valueScan := arg.GetChildren(0).(*value_scan.ValueScan)
-				resetChildren(arg2, valueScan.Batchs[0])
-				defer arg2.ctr.rt.parker.Close()
+				arg2.ctr.hasNewVersionInRange = testFunc
+				child := arg.GetChildren(0).(*colexec.MockOperator)
+				resetChildren(arg2, child.GetBatchs()[0])
+				defer arg2.ctr.parker.Close()
 
 				_, err = arg2.Call(proc)
 				assert.NoError(t, err)
@@ -256,11 +252,11 @@ func TestCallLockOpWithHasPrevCommitLessMe(t *testing.T) {
 		[][]int32{{0, 1, 2}},
 		func(proc *process.Process, arg *LockOp) {
 			require.NoError(t, arg.Prepare(proc))
-			arg.ctr.rt.hasNewVersionInRange = testFunc
+			arg.ctr.hasNewVersionInRange = testFunc
 
-			arg.ctr.rt.parker.Reset()
-			arg.ctr.rt.parker.EncodeInt32(0)
-			conflictRow := arg.ctr.rt.parker.Bytes()
+			arg.ctr.parker.Reset()
+			arg.ctr.parker.EncodeInt32(0)
+			conflictRow := arg.ctr.parker.Bytes()
 
 			// txn01 commit
 			_, err := proc.GetLockService().Lock(
@@ -285,7 +281,6 @@ func TestCallLockOpWithHasPrevCommitLessMe(t *testing.T) {
 			go func() {
 				defer close(c)
 				arg2 := &LockOp{
-					ctr: &container{},
 					OperatorBase: vm.OperatorBase{
 						OperatorInfo: vm.OperatorInfo{
 							Idx:     1,
@@ -294,14 +289,13 @@ func TestCallLockOpWithHasPrevCommitLessMe(t *testing.T) {
 						},
 					},
 				}
-				arg2.ctr.rt = &state{}
-				arg2.ctr.rt.retryError = nil
+				arg2.ctr.retryError = nil
 				arg2.targets = arg.targets
 				arg2.Prepare(proc)
-				arg2.ctr.rt.hasNewVersionInRange = testFunc
-				valueScan := arg.GetChildren(0).(*value_scan.ValueScan)
-				resetChildren(arg2, valueScan.Batchs[0])
-				defer arg2.ctr.rt.parker.Close()
+				arg2.ctr.hasNewVersionInRange = testFunc
+				child := arg.GetChildren(0).(*colexec.MockOperator)
+				resetChildren(arg2, child.GetBatchs()[0])
+				defer arg2.ctr.parker.Close()
 
 				proc.GetTxnOperator().TxnRef().SnapshotTS = timestamp.Timestamp{PhysicalTime: math.MaxInt64}
 
@@ -331,7 +325,7 @@ func TestLockWithBlocking(t *testing.T) {
 			arg *LockOp,
 			idx int,
 			isFirst, isLast bool) (bool, error) {
-			arg.ctr.rt.hasNewVersionInRange = testFunc
+			arg.ctr.hasNewVersionInRange = testFunc
 			arg.OperatorBase.OperatorInfo = vm.OperatorInfo{
 				Idx:     idx,
 				IsFirst: isFirst,
@@ -343,8 +337,8 @@ func TestLockWithBlocking(t *testing.T) {
 				end.Batch.Clean(proc.GetMPool())
 			}
 			if end.Status == vm.ExecStop {
-				if arg.ctr.rt.parker != nil {
-					arg.ctr.rt.parker.Close()
+				if arg.ctr.parker != nil {
+					arg.ctr.parker.Close()
 				}
 			}
 			return end.Status == vm.ExecStop, nil
@@ -392,7 +386,7 @@ func TestLockWithBlockingWithConflict(t *testing.T) {
 			arg *LockOp,
 			idx int,
 			isFirst, isLast bool) (bool, error) {
-			arg.ctr.rt.hasNewVersionInRange = testFunc
+			arg.ctr.hasNewVersionInRange = testFunc
 			arg.OperatorBase.OperatorInfo = vm.OperatorInfo{
 				Idx:     idx,
 				IsFirst: isFirst,
@@ -402,10 +396,7 @@ func TestLockWithBlockingWithConflict(t *testing.T) {
 			return ok.Status == vm.ExecStop, err
 		},
 		func(arg *LockOp, proc *process.Process) {
-			require.True(t, moerr.IsMoErrCode(arg.ctr.rt.retryError, moerr.ErrTxnNeedRetry))
-			for _, bat := range arg.ctr.rt.cachedBatches {
-				bat.Clean(proc.Mp())
-			}
+			require.True(t, moerr.IsMoErrCode(arg.ctr.retryError, moerr.ErrTxnNeedRetry))
 			arg.Free(proc, false, nil)
 			proc.Free()
 		},
@@ -431,7 +422,7 @@ func TestLockWithHasNewVersionInLockedTS(t *testing.T) {
 		[][]int32{{0, 1, 2}},
 		func(proc *process.Process, arg *LockOp) {
 			require.NoError(t, arg.Prepare(proc))
-			arg.ctr.rt.hasNewVersionInRange = func(
+			arg.ctr.hasNewVersionInRange = func(
 				proc *process.Process,
 				rel engine.Relation,
 				tableID uint64,
@@ -443,8 +434,8 @@ func TestLockWithHasNewVersionInLockedTS(t *testing.T) {
 
 			_, err := arg.Call(proc)
 			require.NoError(t, err)
-			require.Error(t, arg.ctr.rt.retryError)
-			require.True(t, moerr.IsMoErrCode(arg.ctr.rt.retryError, moerr.ErrTxnNeedRetry))
+			require.Error(t, arg.ctr.retryError)
+			require.True(t, moerr.IsMoErrCode(arg.ctr.retryError, moerr.ErrTxnNeedRetry))
 		},
 		client.WithTimestampWaiter(tw),
 	)
@@ -531,7 +522,7 @@ func runLockBlockingOpTest(
 				batches2 = append(batches2, bat)
 			}
 			require.NoError(t, arg.Prepare(proc))
-			arg.ctr.rt.batchFetchFunc = func(*process.Process) (vm.CallResult, error) {
+			arg.ctr.batchFetchFunc = func(*process.Process) (vm.CallResult, error) {
 				if len(batches) == 0 {
 					return vm.NewCallResult(), nil
 				}
@@ -613,12 +604,7 @@ func runLockOpTest(
 }
 
 func resetChildren(arg *LockOp, bat *batch.Batch) {
-	valueScanArg := &value_scan.ValueScan{
-		Batchs: []*batch.Batch{bat},
-	}
-	valueScanArg.Prepare(nil)
-	arg.SetChildren(
-		[]vm.Operator{
-			valueScanArg,
-		})
+	op := colexec.NewMockOperator().WithBatchs([]*batch.Batch{bat})
+	arg.Children = nil
+	arg.AppendChild(op)
 }

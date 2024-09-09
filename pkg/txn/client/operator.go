@@ -639,6 +639,16 @@ func (tc *txnOperator) AddLockTable(value lock.LockTable) error {
 	return tc.doAddLockTableLocked(value)
 }
 
+func (tc *txnOperator) HasLockTable(table uint64) bool {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	if tc.mu.txn.Mode != txn.TxnMode_Pessimistic {
+		panic("lock in optimistic mode")
+	}
+
+	return tc.hasLockTableLocked(table)
+}
+
 func (tc *txnOperator) ResetRetry(retry bool) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
@@ -663,6 +673,15 @@ func (tc *txnOperator) doAddLockTableLocked(value lock.LockTable) error {
 	}
 	tc.mu.lockTables = append(tc.mu.lockTables, value)
 	return nil
+}
+
+func (tc *txnOperator) hasLockTableLocked(table uint64) bool {
+	for _, l := range tc.mu.lockTables {
+		if l.Table == table {
+			return true
+		}
+	}
+	return false
 }
 
 func (tc *txnOperator) Debug(ctx context.Context, requests []txn.TxnRequest) (*rpc.SendResult, error) {
@@ -982,7 +1001,7 @@ func (tc *txnOperator) handleErrorResponse(resp txn.TxnResponse) error {
 		}
 		return nil
 	default:
-		return moerr.NewNotSupportedNoCtx("unknown txn response method: %s", resp.DebugString())
+		return moerr.NewNotSupportedNoCtxf("unknown txn response method: %s", resp.DebugString())
 	}
 }
 
@@ -1025,7 +1044,7 @@ func (tc *txnOperator) checkTxnError(txnError *txn.TxnError, possibleErrorMap ma
 		return txnError.UnwrapError()
 	}
 
-	panic(moerr.NewInternalErrorNoCtx("invalid txn error, code %d, msg %s", txnCode, txnError.DebugString()))
+	panic(moerr.NewInternalErrorNoCtxf("invalid txn error, code %d, msg %s", txnCode, txnError.DebugString()))
 }
 
 func (tc *txnOperator) checkResponseTxnStatusForCommit(resp txn.TxnResponse) error {
@@ -1042,7 +1061,7 @@ func (tc *txnOperator) checkResponseTxnStatusForCommit(resp txn.TxnResponse) err
 	case txn.TxnStatus_Committed, txn.TxnStatus_Aborted:
 		return nil
 	default:
-		panic(moerr.NewInternalErrorNoCtx("invalid response status for commit, %v", txnMeta.Status))
+		panic(moerr.NewInternalErrorNoCtxf("invalid response status for commit, %v", txnMeta.Status))
 	}
 }
 
@@ -1060,7 +1079,7 @@ func (tc *txnOperator) checkResponseTxnStatusForRollback(resp txn.TxnResponse) e
 	case txn.TxnStatus_Aborted:
 		return nil
 	default:
-		panic(moerr.NewInternalErrorNoCtx("invalid response status for rollback %v", txnMeta.Status))
+		panic(moerr.NewInternalErrorNoCtxf("invalid response status for rollback %v", txnMeta.Status))
 	}
 }
 

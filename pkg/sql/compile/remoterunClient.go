@@ -174,6 +174,7 @@ func receiveMessageFromCnServer(c *Compile, s *Scope, sender *messageSenderOnCli
 		fakeValueScanOperator.Batchs = append(fakeValueScanOperator.Batchs, bat)
 
 		result, errCall := LastOperator.Call(s.Proc)
+		bat.Clean(c.proc.GetMPool())
 		if errCall != nil || result.Status == vm.ExecStop {
 			return errCall
 		}
@@ -340,6 +341,11 @@ func (sender *messageSenderOnClient) receiveBatch() (bat *batch.Batch, over bool
 		}
 
 		bat, err = decodeBatch(sender.mp, dataBuffer)
+		/* 		bat := new(batch.Batch)
+		   		if err := bat.UnmarshalBinary(dataBuffer); err != nil {
+		   			bat.Clean(sender.mp)
+		   			return bat, false, err
+		   		} */
 		return bat, false, err
 	}
 }

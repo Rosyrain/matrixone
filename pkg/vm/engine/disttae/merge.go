@@ -159,7 +159,7 @@ func (t *cnMergeTask) GetAccBlkCnts() []int {
 }
 
 func (t *cnMergeTask) GetBlockMaxRows() uint32 {
-	return options.DefaultBlockMaxRows
+	return objectio.BlockMaxRows
 }
 
 func (t *cnMergeTask) GetObjectMaxBlocks() uint16 {
@@ -183,9 +183,7 @@ func (t *cnMergeTask) LoadNextBatch(ctx context.Context, objIdx uint32) (*batch.
 		blk := iter.Entry()
 		// update delta location
 		obj := t.targets[objIdx]
-		blk.Sorted = obj.Sorted
-		blk.Appendable = obj.Appendable
-		blk.CommitTs = obj.CommitTS
+		blk.SetFlagByObjStats(obj.ObjectStats)
 		return t.readblock(ctx, &blk)
 	}
 	return nil, nil, nil, mergesort.ErrNoMoreBlocks
@@ -211,8 +209,8 @@ func (t *cnMergeTask) GetTransferMaps() api.TransferMaps {
 
 // impl DisposableVecPool
 func (t *cnMergeTask) GetVector(typ *types.Type) (*vector.Vector, func()) {
-	v := t.proc.GetVector(*typ)
-	return v, func() { t.proc.PutVector(v) }
+	v := vector.NewVec(*typ)
+	return v, func() { v.Free(t.proc.GetMPool()) }
 }
 
 func (t *cnMergeTask) GetMPool() *mpool.MPool {
@@ -252,15 +250,15 @@ func (t *cnMergeTask) prepareCommitEntry() *api.MergeCommitEntry {
 }
 
 func (t *cnMergeTask) PrepareNewWriter() *blockio.BlockWriter {
-	return mergesort.GetNewWriter(t.fs, t.version, t.colseqnums, t.sortkeyPos, t.sortkeyIsPK)
+	return mergesort.GetNewWriter(t.fs, t.version, t.colseqnums, t.sortkeyPos, t.sortkeyIsPK, false) // TODO obj.isTombstone
 }
 
 // readblock reads block data. there is no rowid column, no ablk
 func (t *cnMergeTask) readblock(ctx context.Context, info *objectio.BlockInfo) (bat *batch.Batch, dels *nulls.Nulls, release func(), err error) {
 	// read data
 	bat, dels, release, err = blockio.BlockDataReadNoCopy(
-		ctx, "", info, t.ds, t.colseqnums, t.coltypes,
-		info.CommitTs, t.fs, t.proc.GetMPool(), nil, fileservice.Policy(0))
+		ctx, info, t.ds, t.colseqnums, t.coltypes,
+		t.snapshot, fileservice.Policy(0), t.proc.GetMPool(), t.fs)
 	if err != nil {
 		logutil.Infof("read block data failed: %v", err.Error())
 		return

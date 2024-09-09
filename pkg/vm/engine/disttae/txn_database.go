@@ -68,7 +68,7 @@ func (db *txnDatabase) Relations(ctx context.Context) ([]string, error) {
 	}
 	sql := fmt.Sprintf(catalog.MoTablesInDBQueryFormat, aid, db.databaseName)
 
-	res, err := execReadSql(ctx, db.op, sql, false)
+	res, err := execReadSql(ctx, db.op, sql, true)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (db *txnDatabase) Relation(ctx context.Context, name string, proc any) (eng
 
 	// check the table is deleted or not
 	if txn.tableOps.existAndDeleted(key) {
-		return nil, moerr.NewParseError(ctx, "table %q does not exist", name)
+		return nil, moerr.NewParseErrorf(ctx, "table %q does not exist", name)
 	}
 
 	// get relation from the txn created tables cache: created by this txn
@@ -231,7 +231,7 @@ func (db *txnDatabase) deleteTable(ctx context.Context, name string, forAlter bo
 			zap.String("workspace", db.getTxn().PPString()))
 		panic("delete table failed: query failed")
 	}
-	rowid = vector.GetFixedAt[types.Rowid](res.Batches[0].Vecs[0], 0)
+	rowid = vector.GetFixedAtNoTypeCheck[types.Rowid](res.Batches[0].Vecs[0], 0)
 
 	// 1.2 table column rowids
 	res, err = execReadSql(ctx, db.op, fmt.Sprintf(catalog.MoColumnsRowidsQueryFormat, accountId, db.databaseName, name, id), true)
@@ -240,7 +240,7 @@ func (db *txnDatabase) deleteTable(ctx context.Context, name string, forAlter bo
 	}
 	for _, b := range res.Batches {
 		for i, v := 0, b.Vecs[0]; i < v.Length(); i++ {
-			rowids = append(rowids, vector.GetFixedAt[types.Rowid](v, i))
+			rowids = append(rowids, vector.GetFixedAtNoTypeCheck[types.Rowid](v, i))
 		}
 	}
 
@@ -449,7 +449,7 @@ func (db *txnDatabase) createWithID(
 			bat.Clean(m)
 			return err
 		}
-		tbl.rowid = vector.GetFixedAt[types.Rowid](rowidVec, 0)
+		tbl.rowid = vector.GetFixedAtNoTypeCheck[types.Rowid](rowidVec, 0)
 	}
 
 	{ // 4. Write create column batch
@@ -469,7 +469,7 @@ func (db *txnDatabase) createWithID(
 			return err
 		}
 		for i := 0; i < rowidVec.Length(); i++ {
-			tbl.rowids = append(tbl.rowids, vector.GetFixedAt[types.Rowid](rowidVec, i))
+			tbl.rowids = append(tbl.rowids, vector.GetFixedAtNoTypeCheck[types.Rowid](rowidVec, i))
 		}
 	}
 
@@ -540,7 +540,7 @@ func (db *txnDatabase) loadTableFromStorage(
 	{
 		tblSql := fmt.Sprintf(catalog.MoTablesAllQueryFormat, accountID, db.databaseName, name)
 		var res executor.Result
-		res, err = execReadSql(ctx, db.op, tblSql, false)
+		res, err = execReadSql(ctx, db.op, tblSql, true)
 		if err != nil {
 			return
 		}
@@ -556,7 +556,7 @@ func (db *txnDatabase) loadTableFromStorage(
 		if err := fillTsVecForSysTableQueryBatch(bat, ts, res.Mp); err != nil {
 			return nil, err
 		}
-		ids := vector.MustFixedCol[uint64](bat.GetVector(catalog.MO_TABLES_REL_ID_IDX + cache.MO_OFF))
+		ids := vector.MustFixedColWithTypeCheck[uint64](bat.GetVector(catalog.MO_TABLES_REL_ID_IDX + cache.MO_OFF))
 		tblid = ids[0]
 		cache.ParseTablesBatchAnd(bat, func(ti *cache.TableItem) {
 			tableitem = ti
@@ -567,13 +567,13 @@ func (db *txnDatabase) loadTableFromStorage(
 		// fresh columns
 		colSql := fmt.Sprintf(catalog.MoColumnsAllQueryFormat, accountID, db.databaseName, name, tblid)
 		var res executor.Result
-		res, err = execReadSql(ctx, db.op, colSql, false)
+		res, err = execReadSql(ctx, db.op, colSql, true)
 		if err != nil {
 			return
 		}
 		defer res.Close()
 		if len(res.Batches) == 0 {
-			err = moerr.NewParseError(ctx, "FIND_TABLE columns of table %q does not exist, cnt: %v, sql:%v", name, len(res.Batches), colSql)
+			err = moerr.NewParseErrorf(ctx, "FIND_TABLE columns of table %q does not exist, cnt: %v, sql:%v", name, len(res.Batches), colSql)
 			return
 		}
 		bat := res.Batches[0]
@@ -622,10 +622,10 @@ func (db *txnDatabase) getTableItem(
 		if tableitem == nil {
 			if strings.Contains(name, "_copy_") {
 				stackInfo := debug.Stack()
-				logutil.Error(moerr.NewParseError(context.Background(), "table %q does not exists", name).Error(),
+				logutil.Error(moerr.NewParseErrorf(context.Background(), "table %q does not exists", name).Error(),
 					zap.String("Stack Trace", string(stackInfo)))
 			}
-			return cache.TableItem{}, moerr.NewParseError(ctx, "table %q does not exist", name)
+			return cache.TableItem{}, moerr.NewParseErrorf(ctx, "table %q does not exist", name)
 		}
 		return *tableitem, nil
 	}

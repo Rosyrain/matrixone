@@ -72,6 +72,7 @@ func New(
 	hakeeper logservice.CNHAKeeperClient,
 	keyRouter client2.KeyRouter[pb.StatsInfoKey],
 	updateWorkerFactor int,
+	options ...EngineOptions,
 ) *Engine {
 	cluster := clusterservice.GetMOCluster(service)
 	services := cluster.GetAllTNServices()
@@ -131,12 +132,31 @@ func New(
 		RwMutex:       &sync.Mutex{},
 	}
 
+	for _, opt := range options {
+		opt(e)
+	}
+	e.fillDefaults()
+
 	if err := e.init(ctx); err != nil {
 		panic(err)
 	}
 
 	e.pClient.LogtailRPCClientFactory = DefaultNewRpcStreamToTnLogTailService
 	return e
+}
+
+func (e *Engine) fillDefaults() {
+	if e.insertEntryMaxCount <= 0 {
+		e.insertEntryMaxCount = InsertEntryThreshold
+	}
+	if e.workspaceThreshold <= 0 {
+		e.workspaceThreshold = WorkspaceThreshold
+	}
+	logutil.Info(
+		"INIT-ENGINE-CONFIG",
+		zap.Int("InsertEntryMaxCount", e.insertEntryMaxCount),
+		zap.Uint64("WorkspaceThreshold", e.workspaceThreshold),
+	)
 }
 
 func (e *Engine) GetService() string {
@@ -201,7 +221,7 @@ func (e *Engine) loadDatabaseFromStorage(
 				zap.String("sql", sql), zap.Duration("cost", time.Since(now)))
 		}
 	}()
-	res, err := execReadSql(ctx, op, sql, false)
+	res, err := execReadSql(ctx, op, sql, true)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +279,7 @@ func (e *Engine) Database(ctx context.Context, name string,
 	// check the database is deleted or not
 	key := genDatabaseKey(accountId, name)
 	if _, exist := txn.deletedDatabaseMap.Load(key); exist {
-		return nil, moerr.NewParseError(ctx, "database %q does not exist", name)
+		return nil, moerr.NewParseErrorf(ctx, "database %q does not exist", name)
 	}
 
 	if v, ok := txn.databaseMap.Load(key); ok {
@@ -304,7 +324,7 @@ func (e *Engine) Databases(ctx context.Context, op client.TxnOperator) ([]string
 	}
 	sql := fmt.Sprintf(catalog.MoDatabasesInEngineQueryFormat, aid)
 
-	res, err := execReadSql(ctx, op, sql, false)
+	res, err := execReadSql(ctx, op, sql, true)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +380,7 @@ func (e *Engine) GetRelationById(ctx context.Context, op client.TxnOperator, tab
 	txn := op.GetWorkspace().(*Transaction)
 	dbName, tableName, deleted := txn.tableOps.queryNameByTid(tableId)
 	if tableName == "" && deleted {
-		return "", "", nil, moerr.NewInternalError(ctx, "can not find table by id %d: accountId: %v. Deleted in txn", tableId, accountId)
+		return "", "", nil, moerr.NewInternalErrorf(ctx, "can not find table by id %d: accountId: %v. Deleted in txn", tableId, accountId)
 	}
 
 	// not found in tableOps, try cache
@@ -374,7 +394,7 @@ func (e *Engine) GetRelationById(ctx context.Context, op client.TxnOperator, tab
 			// not found in cache, try storage
 			sql := fmt.Sprintf(catalog.MoTablesQueryNameById, accountId, tableId)
 			tblanmes, dbnames := []string{}, []string{}
-			result, err := execReadSql(ctx, op, sql, false)
+			result, err := execReadSql(ctx, op, sql, true)
 			if err != nil {
 				return "", "", nil, err
 			}
@@ -399,7 +419,7 @@ func (e *Engine) GetRelationById(ctx context.Context, op client.TxnOperator, tab
 		accountId, _ := defines.GetAccountId(ctx)
 		logutil.Error("FIND_TABLE GetRelationById failed",
 			zap.Uint64("tableId", tableId), zap.Uint32("accountId", accountId), zap.String("workspace", txn.PPString()))
-		return "", "", nil, moerr.NewInternalError(ctx, "can not find table by id %d: accountId: %v ", tableId, accountId)
+		return "", "", nil, moerr.NewInternalErrorf(ctx, "can not find table by id %d: accountId: %v ", tableId, accountId)
 	}
 
 	txnDb, err := e.Database(ctx, dbName, op)
@@ -478,7 +498,7 @@ func (e *Engine) Delete(ctx context.Context, name string, op client.TxnOperator)
 			zap.String("workspace", op.GetWorkspace().PPString()))
 		panic("delete table failed: query failed")
 	}
-	rowId := vector.GetFixedAt[types.Rowid](res.Batches[0].Vecs[0], 0)
+	rowId := vector.GetFixedAtNoTypeCheck[types.Rowid](res.Batches[0].Vecs[0], 0)
 
 	// write the batch to delete the database
 	var packer *types.Packer
@@ -551,11 +571,6 @@ func (e *Engine) New(ctx context.Context, op client.TxnOperator) error {
 		toFreeBatches:        make(map[tableKey][]*batch.Batch),
 		syncCommittedTSCount: e.cli.GetSyncLatestCommitTSTimes(),
 	}
-
-	txn.blockId_tn_delete_metaLoc_batch = struct {
-		sync.RWMutex
-		data map[types.Blockid][]*batch.Batch
-	}{data: make(map[types.Blockid][]*batch.Batch)}
 
 	txn.readOnly.Store(true)
 	// transaction's local segment for raw batch.
@@ -655,24 +670,28 @@ func (e *Engine) BuildBlockReaders(
 	def *plan.TableDef,
 	relData engine.RelData,
 	num int) ([]engine.Reader, error) {
+	var (
+		rds   []engine.Reader
+		shard engine.RelData
+	)
 	proc := p.(*process.Process)
 	blkCnt := relData.DataCnt()
+	newNum := num
 	if blkCnt < num {
-		return nil, moerr.NewInternalErrorNoCtx("not enough blocks")
+		newNum = blkCnt
+		for i := 0; i < num-blkCnt; i++ {
+			rds = append(rds, new(emptyReader))
+		}
 	}
 	fs, err := fileservice.Get[fileservice.FileService](e.fs, defines.SharedFileServiceName)
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		rds   []engine.Reader
-		shard engine.RelData
-	)
-	scanType := determineScanType(relData, num)
-	mod := blkCnt % num
-	divide := blkCnt / num
-	for i := 0; i < num; i++ {
+	scanType := determineScanType(relData, newNum)
+	mod := blkCnt % newNum
+	divide := blkCnt / newNum
+	for i := 0; i < newNum; i++ {
 		if i == 0 {
 			shard = relData.DataSlice(i*divide, (i+1)*divide+mod)
 		} else {

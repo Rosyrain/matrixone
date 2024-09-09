@@ -162,9 +162,9 @@ func ReadOneBlockWithMeta(
 			metaColCnt := blkmeta.GetMetaColumnCount()
 			// read appendable block file, the last columns is commits and abort
 			if seqnum == SEQNUM_COMMITTS {
-				seqnum = metaColCnt - 2
-			} else if seqnum == SEQNUM_ABORT {
 				seqnum = metaColCnt - 1
+			} else if seqnum == SEQNUM_ABORT {
+				panic("not support")
 			} else {
 				panic(fmt.Sprintf("bad path to read special column %d", seqnum))
 			}
@@ -225,7 +225,7 @@ func ReadOneBlockWithMeta(
 				if err = vector.NewConstNull(typs[i], length, m).MarshalBinaryWithBuffer(buf); err != nil {
 					return
 				}
-				cacheData := fileservice.GetDefaultCacheDataAllocator().Alloc(buf.Len())
+				cacheData := fileservice.DefaultCacheDataAllocator().AllocateCacheData(buf.Len())
 				copy(cacheData.Bytes(), buf.Bytes())
 				filledEntries[i].CachedData = cacheData
 			}

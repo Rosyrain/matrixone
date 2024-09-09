@@ -70,12 +70,14 @@ var (
 )
 
 var (
-	deleteMoIndexesWithDatabaseIdFormat          = `delete from mo_catalog.mo_indexes where database_id = %v;`
-	deleteMoIndexesWithTableIdFormat             = `delete from mo_catalog.mo_indexes where table_id = %v;`
-	deleteMoIndexesWithTableIdAndIndexNameFormat = `delete from mo_catalog.mo_indexes where table_id = %v and name = '%s';`
-	updateMoIndexesVisibleFormat                 = `update mo_catalog.mo_indexes set is_visible = %v where table_id = %v and name = '%s';`
-	updateMoIndexesTruncateTableFormat           = `update mo_catalog.mo_indexes set table_id = %v where table_id = %v`
-	updateMoIndexesAlgoParams                    = `update mo_catalog.mo_indexes set algo_params = '%s' where table_id = %v and name = '%s';`
+	deleteMoIndexesWithDatabaseIdFormat                 = `delete from mo_catalog.mo_indexes where database_id = %v;`
+	deleteMoIndexesWithTableIdFormat                    = `delete from mo_catalog.mo_indexes where table_id = %v;`
+	deleteMoIndexesWithTableIdAndIndexNameFormat        = `delete from mo_catalog.mo_indexes where table_id = %v and name = '%s';`
+	deleteMoRetentionWithDatabaseNameFormat             = `delete from mo_catalog.mo_retention where database_name = '%s';`
+	deleteMoRetentionWithDatabaseNameAndTableNameFormat = `delete from mo_catalog.mo_retention where database_name = '%s' and table_name = '%s';`
+	updateMoIndexesVisibleFormat                        = `update mo_catalog.mo_indexes set is_visible = %v where table_id = %v and name = '%s';`
+	updateMoIndexesTruncateTableFormat                  = `update mo_catalog.mo_indexes set table_id = %v where table_id = %v`
+	updateMoIndexesAlgoParams                           = `update mo_catalog.mo_indexes set algo_params = '%s' where table_id = %v and name = '%s';`
 )
 
 var (
@@ -502,22 +504,6 @@ func partsToColsStr(parts []string) string {
 		}
 	}
 	return temp
-}
-
-// haveSinkScanInPlan Start from the `curNodeIdx` node, recursively check its Subtree all nodes,
-// determine if they contain `SINK_SCAN` node in the subtree
-func haveSinkScanInPlan(nodes []*plan.Node, curNodeIdx int32) bool {
-	node := nodes[curNodeIdx]
-	if node.NodeType == plan.Node_SINK_SCAN {
-		return true
-	}
-	for _, newIdx := range node.Children {
-		flag := haveSinkScanInPlan(nodes, newIdx)
-		if flag {
-			return flag
-		}
-	}
-	return false
 }
 
 // genInsertMoTablePartitionsSql: Generate an insert statement for insert index metadata into `mo_catalog.mo_table_partitions`

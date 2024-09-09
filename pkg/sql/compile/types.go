@@ -16,7 +16,6 @@ package compile
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -50,7 +49,6 @@ const (
 	Merge magicType = iota
 	Normal
 	Remote
-	Parallel
 	CreateDatabase
 	CreateTable
 	CreateView
@@ -61,6 +59,7 @@ const (
 	TruncateTable
 	AlterView
 	AlterTable
+	RenameTable
 	MergeInsert
 	MergeDelete
 	CreateSequence
@@ -81,7 +80,6 @@ type Source struct {
 	Attributes             []string
 	R                      engine.Reader
 	Rel                    engine.Relation
-	Bat                    *batch.Batch
 	FilterExpr             *plan.Expr // todo: change this to []*plan.Expr
 	node                   *plan.Node
 	TableDef               *plan.TableDef
@@ -106,9 +104,6 @@ type Scope struct {
 	// 1 -  execution unit for processing intermediate results.
 	// 2 -  execution unit that requires remote call.
 	Magic magicType
-
-	// IsJoin means the pipeline is join
-	IsJoin bool
 
 	// IsEnd means the pipeline is end
 	IsEnd bool
@@ -135,9 +130,6 @@ type Scope struct {
 	Proc *process.Process
 
 	RemoteReceivRegInfos []RemoteReceivRegInfo
-
-	BuildIdx   int
-	ShuffleIdx int
 
 	PartialResults     []any
 	PartialResultTypes []types.T
@@ -245,7 +237,7 @@ func (a *analyzeModule) release() {
 
 // Compile contains all the information needed for compilation.
 type Compile struct {
-	scope []*Scope
+	scopes []*Scope
 
 	pn *plan.Plan
 
@@ -291,8 +283,6 @@ type Compile struct {
 	nodeRegs map[[2]int32]*process.WaitRegister
 	stepRegs map[int32][][2]int32
 
-	lock *sync.RWMutex
-
 	isInternal bool
 
 	// cnLabel is the CN labels which is received from proxy when build connection.
@@ -307,8 +297,6 @@ type Compile struct {
 	metaTables   map[string]struct{}
 	lockTables   map[uint64]*plan.LockTarget
 	disableRetry bool
-
-	lastAllocID int32
 
 	isPrepare bool
 }

@@ -184,7 +184,7 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 		}
 		s = appendWriteBackOperator(runCompile, s)
 
-		runCompile.scope = []*Scope{s}
+		runCompile.scopes = []*Scope{s}
 		runCompile.InitPipelineContextToExecuteQuery()
 		defer func() {
 			runCompile.clear()
@@ -201,7 +201,7 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 			_, _ = GetCompileService().removeRunningCompile(runCompile)
 		}()
 
-		err = s.ParallelRun(runCompile)
+		err = s.MergeRun(runCompile)
 		if err == nil {
 			// record the number of s3 requests
 			runCompile.proc.Base.AnalInfos[runCompile.anal.curNodeIdx].S3IOInputCount += runCompile.counterSet.FileService.S3.Put.Load()
