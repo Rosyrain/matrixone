@@ -1,0 +1,11 @@
+name: release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    name: Rlease MO Binary
+    uses: Rosyrain/CI/.github/workflows/release.yaml@binary
+    secrets: inherit
