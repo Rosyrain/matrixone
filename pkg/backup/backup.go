@@ -40,6 +40,7 @@ func Backup(
 	bs *tree.BackupStart,
 	cfg *Config,
 ) error {
+	// test for cn-bvt
 	var err error
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
