@@ -40,6 +40,7 @@ func Backup(
 	bs *tree.BackupStart,
 	cfg *Config,
 ) error {
+	// test for e2e-standalone.yaml
 	var err error
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
