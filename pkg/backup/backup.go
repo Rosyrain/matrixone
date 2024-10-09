@@ -40,7 +40,10 @@ func Backup(
 	bs *tree.BackupStart,
 	cfg *Config,
 ) error {
+	// test for e2e-standalone.yaml
+	//1
 	var err error
+	var test string
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
 		return moerr.NewInternalError(ctx, "invalid config or metas or fileservice")
