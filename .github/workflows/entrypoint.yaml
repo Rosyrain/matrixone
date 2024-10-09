@@ -55,7 +55,7 @@ jobs:
     needs: 
       - check-pr-valid
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
-    uses: Rosyrain/CI/.github/workflows/e2e-standalone.yaml@main
+    uses: Rosyrain/CI/.github/workflows/e2e-standalone.yaml@mo-log
 
   matrixone-utils-ci:
     name: Matrixone Utils CI
