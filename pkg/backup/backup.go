@@ -42,6 +42,7 @@ func Backup(
 ) error {
 	// test for cn-bvt
 	// 1
+	// 2
 	var err error
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
