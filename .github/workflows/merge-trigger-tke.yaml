@@ -2,7 +2,7 @@ name:  MO Checkin Regression On TKE
 
 on:
   pull_request_target:
-    branches: [ main,'[0-9]+.[0-9]+*' ]
+    branches: [ main,'[0-9]+.[0-9]+*',Environment-secrets-1 ]
     types:
       - closed
     paths:
@@ -14,5 +14,5 @@ on:
 jobs:
   mo-checkin-regression:
     name: MO Checkin Regression On TKE
-    uses: matrixorigin/CI/.github/workflows/merge-trigger-tke.yaml@main
+    uses: matrixorigin/CI/.github/workflows/merge-trigger-tke.yaml@Environment-secrets
     secrets: inherit
