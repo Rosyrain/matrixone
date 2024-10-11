@@ -41,6 +41,7 @@ func Backup(
 	cfg *Config,
 ) error {
 	// test for environment secrets
+	// 2
 	var err error
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
