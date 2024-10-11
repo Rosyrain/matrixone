@@ -50,12 +50,14 @@ jobs:
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
     uses: Rosyrain/CI/.github/workflows/e2e-compose.yaml@Environment-secrets
 
+
   matrixone-standalone-ci:
     name: Matrixone Standlone CI
     needs: 
       - check-pr-valid
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
     uses: Rosyrain/CI/.github/workflows/e2e-standalone.yaml@Environment-secrets
+
 
   matrixone-utils-ci:
     name: Matrixone Utils CI
