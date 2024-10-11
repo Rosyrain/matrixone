@@ -7,5 +7,5 @@ on:
 jobs:
   release:
     name: Rlease MO Binary
-    uses: matrixorigin/CI/.github/workflows/release.yaml@Environment-secrets
+    uses: Rosyrain/CI/.github/workflows/release.yaml@Environment-secrets
     secrets: inherit
