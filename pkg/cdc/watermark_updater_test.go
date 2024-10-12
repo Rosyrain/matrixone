@@ -17,6 +17,7 @@ package cdc
 import (
 	"context"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -31,7 +32,7 @@ import (
 )
 
 type wmMockSQLExecutor struct {
-	mp       map[string]string
+	mp       map[uint64]string
 	insertRe *regexp.Regexp
 	updateRe *regexp.Regexp
 	selectRe *regexp.Regexp
@@ -39,25 +40,33 @@ type wmMockSQLExecutor struct {
 
 func newWmMockSQLExecutor() *wmMockSQLExecutor {
 	return &wmMockSQLExecutor{
-		mp:       make(map[string]string),
-		insertRe: regexp.MustCompile(`^insert .* values \(.*\, .*\, \'(.*)\', \'(.*)\'\)$`),
-		updateRe: regexp.MustCompile(`^update .* set watermark\=\'(.*)\' where .* and table_id \= '(.*)'$`),
-		selectRe: regexp.MustCompile(`^select .* and table_id \= '(.*)'$`),
+		mp:       make(map[uint64]string),
+		insertRe: regexp.MustCompile(`^insert .* values \(.*\, .*\, (.*), \'(.*)\'\)$`),
+		updateRe: regexp.MustCompile(`^update .* set watermark\=\'(.*)\' where .* and table_id \= (.*)$`),
+		selectRe: regexp.MustCompile(`^select .* and table_id \= (.*)$`),
 	}
 }
 
 func (m *wmMockSQLExecutor) Exec(_ context.Context, sql string, _ ie.SessionOverrideOptions) error {
 	if strings.HasPrefix(sql, "insert") {
 		matches := m.insertRe.FindStringSubmatch(sql)
-		m.mp[matches[1]] = matches[2]
+		tableId, err := strconv.ParseUint(matches[1], 10, 64)
+		if err != nil {
+			return err
+		}
+		m.mp[tableId] = matches[2]
 	} else if strings.HasPrefix(sql, "update") {
 		matches := m.updateRe.FindStringSubmatch(sql)
-		m.mp[matches[2]] = matches[1]
+		tableId, err := strconv.ParseUint(matches[2], 10, 64)
+		if err != nil {
+			return err
+		}
+		m.mp[tableId] = matches[1]
 	} else if strings.HasPrefix(sql, "delete") {
 		if strings.Contains(sql, "table_id") {
-			delete(m.mp, "1_0")
+			delete(m.mp, 1)
 		} else {
-			m.mp = make(map[string]string)
+			m.mp = make(map[uint64]string)
 		}
 	}
 	return nil
@@ -129,13 +138,17 @@ func (m *wmMockSQLExecutor) Query(ctx context.Context, sql string, pts ie.Sessio
 		}
 	} else if strings.HasPrefix(sql, "select") {
 		matches := m.selectRe.FindStringSubmatch(sql)
+		tableId, err := strconv.ParseUint(matches[1], 10, 64)
+		if err != nil {
+			return nil
+		}
 		return &internalExecResult{
 			affectedRows: 1,
 			resultSet: &MysqlResultSet{
 				Columns:    nil,
 				Name2Index: nil,
 				Data: [][]interface{}{
-					{m.mp[matches[1]]},
+					{m.mp[tableId]},
 				},
 			},
 			err: nil,
@@ -192,12 +205,12 @@ func TestWatermarkUpdater_MemOps(t *testing.T) {
 	}
 
 	t1 := types.BuildTS(1, 1)
-	u.UpdateMem("1_0", t1)
-	actual := u.GetFromMem("1_0")
+	u.UpdateMem(uint64(1), t1)
+	actual := u.GetFromMem(uint64(1))
 	assert.Equal(t, t1, actual)
 
-	u.DeleteFromMem("1_0")
-	actual = u.GetFromMem("1_0")
+	u.DeleteFromMem(uint64(1))
+	actual = u.GetFromMem(uint64(1))
 	assert.Equal(t, types.TS{}, actual)
 }
 
@@ -216,34 +229,34 @@ func TestWatermarkUpdater_DbOps(t *testing.T) {
 
 	// ---------- insert into a record
 	t1 := types.BuildTS(1, 1)
-	err = u.InsertIntoDb("1_0", t1)
+	err = u.InsertIntoDb(uint64(1), t1)
 	assert.NoError(t, err)
 	// count is 1
 	count, err = u.GetCountFromDb()
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(1), count)
 	// get value of tableId 1
-	actual, err := u.GetFromDb("1_0")
+	actual, err := u.GetFromDb(1)
 	assert.NoError(t, err)
 	assert.Equal(t, t1, actual)
 
 	// ---------- update t1 -> t2
 	t2 := types.BuildTS(2, 1)
-	err = u.updateDb("1_0", t2)
+	err = u.updateDb(uint64(1), t2)
 	assert.NoError(t, err)
 	// value is t2
-	actual, err = u.GetFromDb("1_0")
+	actual, err = u.GetFromDb(1)
 	assert.NoError(t, err)
 	assert.Equal(t, t2, actual)
 
 	// ---------- insert more records
-	err = u.InsertIntoDb("2_0", t1)
+	err = u.InsertIntoDb(uint64(2), t1)
 	assert.NoError(t, err)
-	err = u.InsertIntoDb("3_0", t1)
+	err = u.InsertIntoDb(uint64(3), t1)
 	assert.NoError(t, err)
 
 	// ---------- delete tableId 1
-	err = u.DeleteFromDb("1_0")
+	err = u.DeleteFromDb(uint64(1))
 	assert.NoError(t, err)
 	// count is 2
 	count, err = u.GetCountFromDb()
@@ -282,26 +295,26 @@ func TestWatermarkUpdater_flushAll(t *testing.T) {
 	}
 
 	t1 := types.BuildTS(1, 1)
-	err := u.InsertIntoDb("1_0", t1)
+	err := u.InsertIntoDb(uint64(1), t1)
 	assert.NoError(t, err)
-	err = u.InsertIntoDb("2_0", t1)
+	err = u.InsertIntoDb(uint64(2), t1)
 	assert.NoError(t, err)
-	err = u.InsertIntoDb("3_0", t1)
+	err = u.InsertIntoDb(uint64(3), t1)
 	assert.NoError(t, err)
 
 	t2 := types.BuildTS(2, 1)
-	u.UpdateMem("1_0", t2)
-	u.UpdateMem("2_0", t2)
-	u.UpdateMem("3_0", t2)
+	u.UpdateMem(uint64(1), t2)
+	u.UpdateMem(uint64(2), t2)
+	u.UpdateMem(uint64(3), t2)
 	u.flushAll()
 
-	actual, err := u.GetFromDb("1_0")
+	actual, err := u.GetFromDb(uint64(1))
 	assert.NoError(t, err)
 	assert.Equal(t, t2, actual)
-	actual, err = u.GetFromDb("2_0")
+	actual, err = u.GetFromDb(uint64(2))
 	assert.NoError(t, err)
 	assert.Equal(t, t2, actual)
-	actual, err = u.GetFromDb("3_0")
+	actual, err = u.GetFromDb(uint64(3))
 	assert.NoError(t, err)
 	assert.Equal(t, t2, actual)
 }

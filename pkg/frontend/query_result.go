@@ -22,8 +22,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.uber.org/zap"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
@@ -39,6 +37,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/parsers/tree"
 	"github.com/matrixorigin/matrixone/pkg/vm/engine/tae/blockio"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
+	"go.uber.org/zap"
 )
 
 func getQueryResultDir() string {
@@ -118,7 +117,7 @@ func saveBatch(ctx context.Context, ses *Session, bat *batch.Batch) error {
 		ses.Info(ctx, "open save query result", zap.Float64("current result size:", s))
 		return nil
 	}
-	fs := getPu(ses.GetService()).FileService
+	fs := getGlobalPu().FileService
 	// write query result
 	path := catalog.BuildQueryResultPath(ses.GetTenantInfo().GetTenant(), uuid.UUID(ses.GetStmtId()).String(), ses.GetIncBlockIdx())
 	ses.Info(ctx, "open save query result", zap.String("statemant id is:", uuid.UUID(ses.GetStmtId()).String()), zap.String("fileservice name is:", fs.Name()), zap.String("write path is:", path), zap.Float64("current result size:", s))
@@ -166,7 +165,7 @@ func saveMeta(ctx context.Context, ses *Session) error {
 		ses.savedRowCount = 0
 		ses.queryRowCount = 0
 	}()
-	fs := getPu(ses.GetService()).FileService
+	fs := getGlobalPu().FileService
 	// write query result meta
 	colMap, err := buildColumnMap(ctx, ses.rs)
 	if err != nil {
@@ -356,7 +355,7 @@ func isResultQuery(proc *process.Process, p *plan.Plan) ([]string, error) {
 }
 
 func checkPrivilege(sid string, uuids []string, reqCtx context.Context, ses *Session) error {
-	f := getPu(ses.GetService()).FileService
+	f := getGlobalPu().FileService
 	for _, id := range uuids {
 		// var size int64 = -1
 		path := catalog.BuildQueryResultMetaPath(ses.GetTenantInfo().GetTenant(), id)
@@ -597,12 +596,11 @@ func doDumpQueryResult(ctx context.Context, ses *Session, eParam *tree.ExportPar
 	exportParam := &ExportConfig{
 		userConfig: eParam,
 		mrs:        mrs,
-		service:    ses.GetService(),
 	}
 	//prepare output queue
 	//prepare export param
-	exportParam.DefaultBufSize = getPu(exportParam.service).SV.ExportDataDefaultFlushSize
-	exportParam.FileService = getPu(exportParam.service).FileService
+	exportParam.DefaultBufSize = getGlobalPu().SV.ExportDataDefaultFlushSize
+	exportParam.FileService = getGlobalPu().FileService
 	exportParam.Ctx = ctx
 	defer func() {
 		if exportParam.AsyncReader != nil {
@@ -688,7 +686,7 @@ func openResultMeta(ctx context.Context, ses *Session, queryId string) (*plan.Re
 	}
 	metaFile := catalog.BuildQueryResultMetaPath(account.GetTenant(), queryId)
 	// read meta's meta
-	reader, err := blockio.NewFileReader(ses.service, getPu(ses.GetService()).FileService, metaFile)
+	reader, err := blockio.NewFileReader(ses.service, getGlobalPu().FileService, metaFile)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +726,7 @@ func getResultFiles(ctx context.Context, ses *Session, queryId string) ([]result
 	}
 	rti := make([]resultFileInfo, 0, len(fileList))
 	for i, file := range fileList {
-		e, err := getPu(ses.GetService()).FileService.StatFile(ctx, file)
+		e, err := getGlobalPu().FileService.StatFile(ctx, file)
 		if err != nil {
 			if moerr.IsMoErrCode(err, moerr.ErrFileNotFound) {
 				return nil, moerr.NewResultFileNotFound(ctx, file)
@@ -749,7 +747,7 @@ func getResultFiles(ctx context.Context, ses *Session, queryId string) ([]result
 func openResultFile(ctx context.Context, ses *Session, fileName string, fileSize int64) (*blockio.BlockReader, []objectio.BlockObject, error) {
 	// read result's blocks
 	filePath := getPathOfQueryResultFile(fileName)
-	reader, err := blockio.NewFileReader(ses.GetService(), getPu(ses.GetService()).FileService, filePath)
+	reader, err := blockio.NewFileReader(ses.service, getGlobalPu().FileService, filePath)
 	if err != nil {
 		return nil, nil, err
 	}
