@@ -21,8 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/common/pubsub"
@@ -30,6 +28,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"github.com/matrixorigin/matrixone/pkg/sql/parsers/tree"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
+	"go.uber.org/zap"
 )
 
 const (
@@ -210,7 +209,7 @@ func createPublication(ctx context.Context, bh BackgroundExec, cp *tree.CreatePu
 
 	var subAccounts map[int32]*pubsub.AccountInfo
 	if cp.AccountsSet.All {
-		if accountId != sysAccountID && !pubsub.CanPubToAll(accountName, getPu(bh.Service()).SV.PubAllAccounts) {
+		if accountId != sysAccountID && !pubsub.CanPubToAll(accountName, getGlobalPu().SV.PubAllAccounts) {
 			return moerr.NewInternalError(ctx, "only sys account and authorized normal accounts can publish to all accounts")
 		}
 		subAccounts = accIdInfoMap
@@ -381,7 +380,7 @@ func doAlterPublication(ctx context.Context, ses *Session, ap *tree.AlterPublica
 	if ap.AccountsSet != nil {
 		switch {
 		case ap.AccountsSet.All:
-			if accountId != sysAccountID && !pubsub.CanPubToAll(accountName, getPu(ses.GetService()).SV.PubAllAccounts) {
+			if accountId != sysAccountID && !pubsub.CanPubToAll(accountName, getGlobalPu().SV.PubAllAccounts) {
 				return moerr.NewInternalError(ctx, "only sys account and authorized normal accounts can publish to all accounts")
 			}
 			newSubAccounts = accIdInfoMap
@@ -1386,7 +1385,7 @@ func batchDeleteMoSubs(
 }
 
 func getSubscriptionMeta(ctx context.Context, dbName string, ses FeSession, txn TxnOperator) (*plan.SubscriptionMeta, error) {
-	dbMeta, err := getPu(ses.GetService()).StorageEngine.Database(ctx, dbName, txn)
+	dbMeta, err := getGlobalPu().StorageEngine.Database(ctx, dbName, txn)
 	if err != nil {
 		ses.Errorf(ctx, "Get Subscription database %s meta error: %s", dbName, err.Error())
 		return nil, moerr.NewNoDB(ctx)

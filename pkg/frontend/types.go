@@ -20,7 +20,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -340,7 +339,6 @@ type BackgroundExec interface {
 	GetExecResultBatches() []*batch.Batch
 	ClearExecResultBatches()
 	Clear()
-	Service() string
 }
 
 var _ BackgroundExec = &backExec{}
@@ -678,11 +676,6 @@ type feSessionImpl struct {
 	// reserved because the connection is still in use in proxy's connection cache.
 	// Default is false, means that the network connection should be closed.
 	reserveConn bool
-	service     string
-}
-
-func (ses *feSessionImpl) GetService() string {
-	return ses.service
 }
 
 func (ses *feSessionImpl) GetMySQLParser() *mysql.MySQLParser {
@@ -1237,14 +1230,4 @@ type CsvWriter interface {
 // MemWriter write batch into memory pool
 type MemWriter interface {
 	MediaWriter
-}
-
-// ServerLevelVariables holds the variables are shared in single frontend mo server instance.
-// these variables should be initialized at the server startup.
-type ServerLevelVariables struct {
-	RtMgr           atomic.Value
-	Pu              atomic.Value
-	Aicm            atomic.Value
-	moServerStarted atomic.Bool
-	sessionAlloc    atomic.Value
 }

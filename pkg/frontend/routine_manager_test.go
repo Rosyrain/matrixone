@@ -37,11 +37,10 @@ func Test_Closed(t *testing.T) {
 	registerConn(clientConn)
 	pu, _ := getParameterUnit("test/system_vars_config.toml", nil, nil)
 	pu.SV.SkipCheckUser = true
-	setSessionAlloc("", NewLeakCheckAllocator())
-	setPu("", pu)
+	setGlobalPu(pu)
 	ctx := context.WithValue(context.TODO(), config.ParameterUnitKey, pu)
-	temp, _ := NewRoutineManager(ctx, "")
-	setRtMgr("", temp)
+	temp, _ := NewRoutineManager(ctx)
+	setGlobalRtMgr(temp)
 	mo := createInnerServer()
 	wg := sync.WaitGroup{}
 	wg.Add(1)
