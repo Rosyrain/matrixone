@@ -186,22 +186,27 @@ type Conn struct {
 	allocator         *BufferAllocator
 	ses               *Session
 	closeFunc         sync.Once
-	service           string
 }
 
 // NewIOSession create a new io session
-func NewIOSession(conn net.Conn, pu *config.ParameterUnit, service string) (_ *Conn, err error) {
+func NewIOSession(conn net.Conn, pu *config.ParameterUnit) (_ *Conn, err error) {
+	// just for ut
+	_, ok := globalSessionAlloc.Load().(Allocator)
+	if !ok {
+		allocator := NewSessionAllocator(pu)
+		setGlobalSessionAlloc(allocator)
+	}
+
 	c := &Conn{
 		conn:              conn,
 		localAddr:         conn.LocalAddr().String(),
 		remoteAddr:        conn.RemoteAddr().String(),
 		fixBuf:            MemBlock{},
 		dynamicWrBuf:      list.New(),
-		allocator:         &BufferAllocator{allocator: getSessionAlloc(service)},
+		allocator:         &BufferAllocator{allocator: getGlobalSessionAlloc()},
 		timeout:           pu.SV.SessionTimeout.Duration,
 		maxBytesToFlush:   int(pu.SV.MaxBytesInOutbufToFlush * 1024),
 		allowedPacketSize: int(MaxPayloadSize),
-		service:           service,
 	}
 
 	defer func() {
@@ -273,7 +278,7 @@ func (c *Conn) Close() error {
 			return
 		}
 		c.ses = nil
-		rm := getRtMgr(c.service)
+		rm := getGlobalRtMgr()
 		if rm != nil {
 			rm.Closed(c)
 		}

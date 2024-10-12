@@ -47,7 +47,6 @@ type RoutineManager struct {
 	tlsConfig        *tls.Config
 	accountRoutine   *AccountRoutineManager
 	baseService      BaseService
-	service          string
 	sessionManager   *queryservice.SessionManager
 	// reportSystemStatusTime is the time when report system status last time.
 	reportSystemStatusTime atomic.Pointer[time.Time]
@@ -212,12 +211,12 @@ func (rm *RoutineManager) getTlsConfig() *tls.Config {
 
 func (rm *RoutineManager) getConnID() (uint32, error) {
 	// Only works in unit test.
-	if getPu(rm.service).HAKeeperClient == nil {
+	if getGlobalPu().HAKeeperClient == nil {
 		return nextConnectionID(), nil
 	}
 	ctx, cancel := context.WithTimeout(rm.ctx, time.Second*2)
 	defer cancel()
-	connID, err := getPu(rm.service).HAKeeperClient.AllocateIDByKey(ctx, ConnIDAllocKey)
+	connID, err := getGlobalPu().HAKeeperClient.AllocateIDByKey(ctx, ConnIDAllocKey)
 	if err != nil {
 		return 0, err
 	}
@@ -253,8 +252,8 @@ func (rm *RoutineManager) Created(rs *Conn) error {
 	if rm.baseService != nil {
 		sid = rm.baseService.ID()
 	}
-	pro := NewMysqlClientProtocol(sid, connID, rs, int(getPu(rm.service).SV.MaxBytesInOutbufToFlush), getPu(rm.service).SV)
-	routine := NewRoutine(rm.getCtx(), pro, getPu(rm.service).SV)
+	pro := NewMysqlClientProtocol(sid, connID, rs, int(getGlobalPu().SV.MaxBytesInOutbufToFlush), getGlobalPu().SV)
+	routine := NewRoutine(rm.getCtx(), pro, getGlobalPu().SV)
 	v2.CreatedRoutineCounter.Inc()
 
 	cancelCtx := routine.getCancelRoutineCtx()
@@ -283,7 +282,7 @@ func (rm *RoutineManager) Created(rs *Conn) error {
 	ses.Debugf(cancelCtx, "have done some preparation for the connection %s", rs.RemoteAddress())
 
 	// With proxy module enabled, we try to update salt value and label info from proxy.
-	if getPu(rm.service).SV.ProxyEnabled {
+	if getGlobalPu().SV.ProxyEnabled {
 		pro.receiveExtraInfo(rs)
 	}
 	rm.setRoutine(rs, pro.connectionID, routine)
@@ -409,7 +408,7 @@ func (rm *RoutineManager) cleanKillQueue() {
 	ar.killQueueMu.Lock()
 	defer ar.killQueueMu.Unlock()
 	for toKillAccount, killRecord := range ar.killIdQueue {
-		if time.Since(killRecord.killTime) > time.Duration(getPu(rm.service).SV.CleanKillQueueInterval)*time.Minute {
+		if time.Since(killRecord.killTime) > time.Duration(getGlobalPu().SV.CleanKillQueueInterval)*time.Minute {
 			delete(ar.killIdQueue, toKillAccount)
 		}
 	}
@@ -486,7 +485,7 @@ func (rm *RoutineManager) killNetConns() {
 	}
 }
 
-func NewRoutineManager(ctx context.Context, service string) (*RoutineManager, error) {
+func NewRoutineManager(ctx context.Context) (*RoutineManager, error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	accountRoutine := &AccountRoutineManager{
@@ -502,10 +501,9 @@ func NewRoutineManager(ctx context.Context, service string) (*RoutineManager, er
 		routinesByConnID: make(map[uint32]*Routine),
 		accountRoutine:   accountRoutine,
 		cancel:           cancel,
-		service:          service,
 	}
-	if getPu(rm.service).SV.EnableTls {
-		err := initTlsConfig(rm, getPu(rm.service).SV)
+	if getGlobalPu().SV.EnableTls {
+		err := initTlsConfig(rm, getGlobalPu().SV)
 		if err != nil {
 			return nil, err
 		}
@@ -520,7 +518,7 @@ func NewRoutineManager(ctx context.Context, service string) (*RoutineManager, er
 			default:
 			}
 			rm.KillRoutineConnections()
-			time.Sleep(time.Duration(time.Duration(getPu(rm.service).SV.KillRountinesInterval) * time.Second))
+			time.Sleep(time.Duration(time.Duration(getGlobalPu().SV.KillRountinesInterval) * time.Second))
 		}
 	}()
 

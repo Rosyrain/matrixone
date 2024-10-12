@@ -61,7 +61,6 @@ type ExportConfig struct {
 	AsyncGroup  *errgroup.Group
 	mrs         *MysqlResultSet
 	ctx         context.Context
-	service     string
 }
 
 type writeParam struct {
@@ -151,7 +150,7 @@ var openNewFile = func(ctx context.Context, ep *ExportConfig, mrs *MysqlResultSe
 
 	var readPath string
 	if fspath.Service == defines.SharedFileServiceName {
-		ep.FileService = getPu(ep.service).FileService
+		ep.FileService = getGlobalPu().FileService
 		readPath = filePath
 
 	} else {

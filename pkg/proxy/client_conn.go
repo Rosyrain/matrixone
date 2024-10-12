@@ -27,8 +27,6 @@ import (
 	"time"
 
 	"github.com/fagongzi/goetty/v2"
-	"go.uber.org/zap"
-
 	"github.com/matrixorigin/matrixone/pkg/clusterservice"
 	"github.com/matrixorigin/matrixone/pkg/common/log"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
@@ -37,6 +35,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/logservice"
 	qclient "github.com/matrixorigin/matrixone/pkg/queryservice/client"
 	v2 "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
+	"go.uber.org/zap"
 )
 
 // clientBaseConnID is the base connection ID for client.
@@ -215,7 +214,7 @@ func newClientConn(
 	}
 	fp.SetDefaultValues()
 	pu := config.NewParameterUnit(&fp, nil, nil, nil)
-	ios, err := frontend.NewIOSession(c.RawConn(), pu, cfg.UUID)
+	ios, err := frontend.NewIOSession(c.RawConn(), pu)
 	if err != nil {
 		return nil, err
 	}

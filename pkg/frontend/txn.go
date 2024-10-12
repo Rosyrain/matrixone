@@ -346,7 +346,7 @@ func (th *TxnHandler) createUnsafe(execCtx *ExecCtx) error {
 // createTxnOpUnsafe creates a new txn operator using TxnClient. Should not be called outside txn
 func (th *TxnHandler) createTxnOpUnsafe(execCtx *ExecCtx) error {
 	var err error
-	if getPu(execCtx.ses.GetService()).TxnClient == nil {
+	if getGlobalPu().TxnClient == nil {
 		panic("must set txn client")
 	}
 
@@ -407,7 +407,7 @@ func (th *TxnHandler) createTxnOpUnsafe(execCtx *ExecCtx) error {
 		}
 	}
 
-	th.txnOp, err = getPu(execCtx.ses.GetService()).TxnClient.New(
+	th.txnOp, err = getGlobalPu().TxnClient.New(
 		th.txnCtx,
 		execCtx.ses.getLastCommitTS(),
 		opts...)
