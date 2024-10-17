@@ -40,6 +40,7 @@ func Backup(
 	bs *tree.BackupStart,
 	cfg *Config,
 ) error {
+	// test for export-test
 	var err error
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
