@@ -3,7 +3,7 @@ name: MatrixOne ALL CI
 on:
   pull_request_target:
     types: [ opened, synchronize, reopened ]
-    branches: [ main,'[0-9]+.[0-9]+*' ]
+    branches: [ main,'[0-9]+.[0-9]+*',panic-main ]
 
 concurrency: 
   group: ${{ github.event.pull_request.head.repo.full_name}}/${{ github.event.pull_request.head.ref }}/${{ github.workflow }}
@@ -16,7 +16,7 @@ jobs:
     outputs:
       pr_valid: ${{ steps.check_pr_valid.outputs.pull_valid }}
     steps:
-      - uses: matrixorigin/CI/actions/pulls-content-check@main
+      - uses: Rosyrain/CI/actions/pulls-content-check@fix-CI-ut-painc-test
         id: check_pr_valid
         with:
           github_token: ${{ secrets.TOKEN_ACTION }}
@@ -28,7 +28,7 @@ jobs:
     needs: 
       - check-pr-valid
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
-    uses: matrixorigin/CI/.github/workflows/ci.yaml@main
+    uses: Rosyrain/CI/.github/workflows/ci.yaml@fix-CI-ut-painc-test
     secrets:
       S3ENDPOINT: ${{ secrets.S3ENDPOINT }}
       S3REGION: ${{ secrets.S3REGION }}
@@ -41,28 +41,28 @@ jobs:
     needs: 
       - check-pr-valid
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
-    uses: matrixorigin/CI/.github/workflows/e2e-upgrade.yaml@main
+    uses: Rosyrain/CI/.github/workflows/e2e-upgrade.yaml@fix-CI-ut-painc-test
 
   matrixone-compose-ci:
     name: Matrixone Compose CI
     needs: 
       - check-pr-valid
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
-    uses: matrixorigin/CI/.github/workflows/e2e-compose.yaml@main
+    uses: Rosyrain/CI/.github/workflows/e2e-compose.yaml@fix-CI-ut-painc-test
 
   matrixone-standalone-ci:
     name: Matrixone Standlone CI
     needs: 
       - check-pr-valid
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
-    uses: matrixorigin/CI/.github/workflows/e2e-standalone.yaml@main
+    uses: Rosyrain/CI/.github/workflows/e2e-standalone.yaml@fix-CI-ut-painc-test
 
   matrixone-utils-ci:
     name: Matrixone Utils CI
     needs: 
       - check-pr-valid
     if: ${{ needs.check-pr-valid.outputs.pr_valid == 'true' }}
-    uses: matrixorigin/CI/.github/workflows/utils.yaml@main
+    uses: Rosyrain/CI/.github/workflows/utils.yaml@fix-CI-ut-painc-test
     secrets:
       TOKEN_ACTION: ${{ secrets.TOKEN_ACTION }}
       TEST_S3FS_ALIYUN: ${{ secrets.TEST_S3FS_ALIYUN }}
