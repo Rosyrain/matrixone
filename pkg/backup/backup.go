@@ -40,6 +40,7 @@ func Backup(
 	bs *tree.BackupStart,
 	cfg *Config,
 ) error {
+	// test for panic about ut failed
 	var err error
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
