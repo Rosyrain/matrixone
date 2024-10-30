@@ -114,17 +114,28 @@ type RowEntry struct {
 
 func (r RowEntry) Less(than RowEntry) bool {
 	// asc
-	if cmp := r.BlockID.Compare(&than.BlockID); cmp != 0 {
-		return cmp < 0
+	cmp := r.BlockID.Compare(&than.BlockID)
+	if cmp < 0 {
+		return true
 	}
-
+	if cmp > 0 {
+		return false
+	}
 	// asc
-	if cmp := r.RowID.Compare(&than.RowID); cmp != 0 {
-		return cmp < 0
+	if r.RowID.LT(&than.RowID) {
+		return true
 	}
-
+	if than.RowID.LT(&r.RowID) {
+		return false
+	}
 	// desc
-	return r.Time.Compare(&than.Time) > 0
+	if than.Time.LT(&r.Time) {
+		return true
+	}
+	if r.Time.LT(&than.Time) {
+		return false
+	}
+	return false
 }
 
 type PrimaryIndexEntry struct {
@@ -135,21 +146,15 @@ type PrimaryIndexEntry struct {
 	BlockID objectio.Blockid
 	RowID   objectio.Rowid
 	Time    types.TS
-	Deleted bool
 }
 
 func (p *PrimaryIndexEntry) Less(than *PrimaryIndexEntry) bool {
-	if res := bytes.Compare(p.Bytes, than.Bytes); res != 0 {
-		return res < 0
+	if res := bytes.Compare(p.Bytes, than.Bytes); res < 0 {
+		return true
+	} else if res > 0 {
+		return false
 	}
-
-	// desc
-	if res := p.Time.Compare(&than.Time); res != 0 {
-		return res > 0
-	}
-
-	// desc
-	return p.RowEntryID > than.RowEntryID
+	return p.RowEntryID < than.RowEntryID
 }
 
 type ObjectIndexByTSEntry struct {
@@ -162,12 +167,22 @@ type ObjectIndexByTSEntry struct {
 
 func (b ObjectIndexByTSEntry) Less(than ObjectIndexByTSEntry) bool {
 	// asc
-	if cmp := b.Time.Compare(&than.Time); cmp != 0 {
-		return cmp < 0
+	if b.Time.LT(&than.Time) {
+		return true
+	}
+	if than.Time.LT(&b.Time) {
+		return false
 	}
 
-	// asc
-	return bytes.Compare(b.ShortObjName[:], than.ShortObjName[:]) < 0
+	cmp := bytes.Compare(b.ShortObjName[:], than.ShortObjName[:])
+	if cmp < 0 {
+		return true
+	}
+	if cmp > 0 {
+		return false
+	}
+
+	return false
 }
 
 var nextRowEntryID = int64(1)

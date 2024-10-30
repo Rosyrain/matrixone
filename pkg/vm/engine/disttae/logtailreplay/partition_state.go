@@ -240,7 +240,6 @@ func (p *PartitionState) HandleDataObjectList(
 							p.rowPrimaryKeyIndex.Delete(&PrimaryIndexEntry{
 								Bytes:      entry.PrimaryIndexBytes,
 								RowEntryID: entry.ID,
-								Time:       entry.Time,
 							})
 						}
 						numDeleted++
@@ -355,7 +354,6 @@ func (p *PartitionState) HandleTombstoneObjectList(
 
 		for ok := tbIter.Seek(&PrimaryIndexEntry{
 			Bytes: objEntry.ObjectName().ObjectId()[:],
-			Time:  types.MaxTs(),
 		}); ok; ok = tbIter.Next() {
 			if truncatePoint.LT(&tbIter.Item().Time) {
 				continue
@@ -381,7 +379,6 @@ func (p *PartitionState) HandleTombstoneObjectList(
 				p.rowPrimaryKeyIndex.Delete(&PrimaryIndexEntry{
 					Bytes:      deletedRow.PrimaryIndexBytes,
 					RowEntryID: deletedRow.ID,
-					Time:       deletedRow.Time,
 				})
 			}
 		}
@@ -463,7 +460,6 @@ func (p *PartitionState) HandleRowsDelete(
 				BlockID:    blockID,
 				RowID:      rowID,
 				Time:       entry.Time,
-				Deleted:    entry.Deleted,
 			}
 			p.rowPrimaryKeyIndex.Set(pe)
 		}
@@ -475,7 +471,6 @@ func (p *PartitionState) HandleRowsDelete(
 			RowID:      entry.RowID,
 			Time:       entry.Time,
 			RowEntryID: entry.ID,
-			Deleted:    entry.Deleted,
 		}
 
 		p.inMemTombstoneRowIdIndex.Set(&index)
@@ -540,15 +535,14 @@ func (p *PartitionState) HandleRowsInsert(
 		p.rows.Set(entry)
 
 		{
-			pe := &PrimaryIndexEntry{
+			entry := &PrimaryIndexEntry{
 				Bytes:      primaryKeys[i],
 				RowEntryID: entry.ID,
 				BlockID:    blockID,
 				RowID:      rowID,
 				Time:       entry.Time,
-				Deleted:    entry.Deleted,
 			}
-			p.rowPrimaryKeyIndex.Set(pe)
+			p.rowPrimaryKeyIndex.Set(entry)
 		}
 	}
 
@@ -779,7 +773,6 @@ func (p *PartitionState) PKExistInMemBetween(
 	for _, key := range keys {
 
 		idxEntry.Bytes = key
-		idxEntry.Time = types.MaxTs()
 
 		for ok := iter.Seek(idxEntry); ok; ok = iter.Next() {
 
