@@ -43,6 +43,7 @@ func Backup(
 	// test for ignore
 	// 2
 	// 3
+	// 4
 	var err error
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
