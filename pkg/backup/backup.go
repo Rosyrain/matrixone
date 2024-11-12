@@ -35,6 +35,9 @@ import (
 // Backup
 // Note: ctx needs to support cancel. The user can cancel the backup task by canceling the ctx.
 func Backup(ctx context.Context, bs *tree.BackupStart, cfg *Config) error {
+	// test
+	// 2
+	// 3
 	var err error
 	var s3Conf *s3Config
 	if !cfg.metasMustBeSet() {
