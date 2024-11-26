@@ -183,8 +183,7 @@ func parseConfigFromFile(file string, cfg any) error {
 	if err != nil {
 		return err
 	}
-	panic(data)
-	//return parseFromString(string(data), cfg)
+	return parseFromString(string(data), cfg)
 }
 
 func parseFromString(data string, cfg any) error {
