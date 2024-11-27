@@ -76,6 +76,7 @@ func TestParseTNConfig(t *testing.T) {
 	// test
 	// test2
 	// 3
+	// 4
 	panic(1)
 }
 
