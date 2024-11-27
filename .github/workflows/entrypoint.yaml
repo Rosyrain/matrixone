@@ -74,3 +74,5 @@ jobs:
       TEST_S3FS_QCLOUD: ${{ secrets.TEST_S3FS_QCLOUD }}
       DOCU_GROUP_HOOK: ${{ secrets.DOCU_GROUP_HOOK }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      TENCENT_AK: ${{ secrets.TENCENT_AK }}
+      TENCENT_SK: ${{ secrets.TENCENT_SK }}
